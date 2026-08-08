@@ -10,6 +10,7 @@ import {
   Loader2,
   MapPin,
   PackageCheck,
+  PackageSearch,
   PackageX,
   ScanLine,
   Save,
@@ -206,6 +207,16 @@ export function ZonesPreview({
           >
             <ScanLine className="h-6 w-6" />
             Ir a escanear
+          </button>
+        )}
+        {confirmed && remoteSaveStatus === "ok" && (
+          <button
+            type="button"
+            onClick={() => void navigate({ to: "/consulta" })}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-accent bg-card px-6 py-4 text-lg font-bold text-accent"
+          >
+            <PackageSearch className="h-5 w-5" />
+            Ir a consulta pública
           </button>
         )}
         <button

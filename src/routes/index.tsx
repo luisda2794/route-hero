@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useRef, useState } from "react";
-import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
+import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, PackageSearch } from "lucide-react";
 import {
   parseEpodFile,
   summarizeByZipAndType,
@@ -150,11 +150,25 @@ function SetupPage() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-lg px-4 pb-16 pt-8">
+      <Link
+        to="/consulta"
+        className="mb-6 flex items-center gap-3 rounded-2xl border-2 border-accent bg-accent/10 px-4 py-3.5 text-accent"
+      >
+        <PackageSearch className="h-6 w-6 shrink-0" />
+        <span className="text-left">
+          <span className="block text-base font-black leading-tight">¿Buscas tu paquete?</span>
+          <span className="block text-sm font-semibold leading-tight text-accent/80">
+            Consulta pública — sin necesidad de cuenta
+          </span>
+        </span>
+      </Link>
+
       <header className="mb-8">
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Paso 1 de 4</p>
         <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">RUTAFACIL</h1>
         <p className="mt-2 text-base text-muted-foreground">
-          Configuración del día. Todo se procesa en tu teléfono, sin servidores.
+          Configuración del día. El ePOD se procesa en tu teléfono; al confirmar las zonas se guarda
+          también una copia en la nube para la consulta pública.
         </p>
       </header>
 
