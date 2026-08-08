@@ -2,6 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import { parseEpodFile, type EpodParseResult, type ColumnKey } from "@/lib/epod";
+import { buildZones, type Zone } from "@/lib/clustering";
+import { ZonesPreview } from "@/components/zones-preview";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -40,6 +42,9 @@ function SetupPage() {
   const [result, setResult] = useState<EpodParseResult | null>(null);
   const [drivers, setDrivers] = useState("");
   const [perDriver, setPerDriver] = useState("");
+  const [step, setStep] = useState<"setup" | "zones">("setup");
+  const [zones, setZones] = useState<Zone[]>([]);
+  const [savedAssignment, setSavedAssignment] = useState<Record<string, string> | null>(null);
 
   async function handleFile(file: File | undefined) {
     if (!file) return;
@@ -66,6 +71,37 @@ function SetupPage() {
   const nPerDriver = Number(perDriver) || 0;
   const suggestedZones = total && nPerDriver ? Math.max(1, Math.ceil(total / nPerDriver)) : 0;
   const canCalculate = Boolean(result && total > 0 && nDrivers > 0);
+
+  function handleCalculate() {
+    if (!result || nDrivers <= 0) return;
+    const { zones: computed } = buildZones(result.inDeliveryRows, nDrivers);
+    setZones(computed);
+    setSavedAssignment(null);
+    setStep("zones");
+  }
+
+  function handleConfirm() {
+    const assignment: Record<string, string> = {};
+    for (const zone of zones) {
+      for (const point of zone.points) {
+        assignment[point.waybill] = zone.name;
+      }
+    }
+    setSavedAssignment(assignment);
+  }
+
+  if (step === "zones" && result) {
+    return (
+      <ZonesPreview
+        zones={zones}
+        unlocated={result.inDeliveryRows.filter((r) => r.lat === null || r.lon === null)}
+        onZonesChange={setZones}
+        onBack={() => setStep("setup")}
+        onConfirm={handleConfirm}
+        confirmed={savedAssignment !== null}
+      />
+    );
+  }
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-lg px-4 pb-16 pt-8">
@@ -199,6 +235,7 @@ function SetupPage() {
 
       <button
         type="button"
+        onClick={handleCalculate}
         disabled={!canCalculate}
         className="w-full rounded-2xl bg-primary px-6 py-5 text-xl font-black uppercase tracking-wide text-primary-foreground transition-opacity disabled:opacity-40"
       >

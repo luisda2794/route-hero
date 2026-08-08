@@ -99,6 +99,8 @@ export type EpodParseResult = {
   statusCounts: Record<string, number>;
   inDeliveryToday: number;
   withoutCoords: number;
+  /** Rows already filtered to today's date and in-delivery status. */
+  inDeliveryRows: EpodRow[];
 };
 
 const DELIVERY_STATUSES = ["driver_received", "driver_received_incidencias"];
@@ -178,5 +180,6 @@ export async function parseEpodFile(file: File): Promise<EpodParseResult> {
     statusCounts,
     inDeliveryToday: inDelivery.length,
     withoutCoords: inDelivery.filter((r) => r.lat === null || r.lon === null).length,
+    inDeliveryRows: inDelivery,
   };
 }
