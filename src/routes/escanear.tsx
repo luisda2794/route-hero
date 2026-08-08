@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { AlertTriangle, ChevronDown, RotateCcw } from "lucide-react";
+import { AlertTriangle, ChevronDown, Footprints, RotateCcw, Truck } from "lucide-react";
 import {
   loadAssignments,
   loadScanState,
@@ -233,11 +233,21 @@ function ScanPage() {
             <>
               <p className="text-2xl font-bold text-success-foreground/80">Conductor</p>
               <p className="text-8xl font-black text-success-foreground">{result.assignment.driverNumber}</p>
-              {result.assignment.isPudo && (
-                <span className="rounded-full bg-success-foreground/20 px-4 py-1 text-lg font-black uppercase tracking-wide text-success-foreground">
-                  Ruta PUDO
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                <span className="flex items-center gap-1 rounded-full bg-success-foreground/20 px-3 py-1 text-sm font-black uppercase tracking-wide text-success-foreground">
+                  {result.assignment.driverType === "andarin" ? (
+                    <Footprints className="h-4 w-4" />
+                  ) : (
+                    <Truck className="h-4 w-4" />
+                  )}
+                  {result.assignment.driverType === "andarin" ? "Andarín" : "Repartidor"}
                 </span>
-              )}
+                {result.assignment.isPudo && (
+                  <span className="rounded-full bg-success-foreground/20 px-3 py-1 text-sm font-black uppercase tracking-wide text-success-foreground">
+                    Ruta PUDO
+                  </span>
+                )}
+              </div>
               <p className="mt-4 text-3xl font-black text-success-foreground">
                 Parada {result.assignment.stopNumber} de {result.assignment.totalStops}
               </p>

@@ -8,7 +8,7 @@ import {
   type EpodRow,
   type ColumnKey,
 } from "@/lib/epod";
-import { buildZonesByZip, type ZipGroup } from "@/lib/clustering";
+import { buildZonesByZip, type DriverType, type ZipGroup } from "@/lib/clustering";
 import { buildAssignments, saveAssignments } from "@/lib/assignment";
 import { ZonesPreview } from "@/components/zones-preview";
 
@@ -48,12 +48,14 @@ function SetupPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<EpodParseResult | null>(null);
   const [driversByZip, setDriversByZip] = useState<Record<string, string>>({});
+  const [driverTypesByZip, setDriverTypesByZip] = useState<Record<string, DriverType[]>>({});
   const [pudoEnabled, setPudoEnabled] = useState(false);
   const [pudoDrivers, setPudoDrivers] = useState("");
   const [step, setStep] = useState<"setup" | "zones">("setup");
   const [zipGroups, setZipGroups] = useState<ZipGroup[]>([]);
   const [pudoGroup, setPudoGroup] = useState<ZipGroup | null>(null);
   const [unlocatedRows, setUnlocatedRows] = useState<EpodRow[]>([]);
+  const [extraAndarinZones, setExtraAndarinZones] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
 
   async function handleFile(file: File | undefined) {
@@ -87,21 +89,33 @@ function SetupPage() {
       (Object.values(driversByZip).some((v) => Number(v) > 0) || nPudoDrivers > 0),
   );
 
+  function updateDriverType(zip: string, index: number, type: DriverType) {
+    setDriverTypesByZip((prev) => {
+      const next = [...(prev[zip] ?? [])];
+      next[index] = type;
+      return { ...prev, [zip]: next };
+    });
+  }
+
   function handleCalculate() {
     if (!result) return;
-    const driverCounts: Record<string, number> = {};
+    const driverTypeConfigs: Record<string, DriverType[]> = {};
     for (const [zip, value] of Object.entries(driversByZip)) {
       const n = Number(value);
-      if (n > 0) driverCounts[zip] = n;
+      if (n <= 0) continue;
+      const types = driverTypesByZip[zip] ?? [];
+      driverTypeConfigs[zip] = Array.from({ length: n }, (_, i) => types[i] ?? "repartidor");
     }
-    const { groups, pudoGroup: computedPudoGroup, unlocated } = buildZonesByZip(
-      result.inDeliveryRows,
-      driverCounts,
-      nPudoDrivers,
-    );
+    const {
+      groups,
+      pudoGroup: computedPudoGroup,
+      unlocated,
+      extraAndarinZones: extra,
+    } = buildZonesByZip(result.inDeliveryRows, driverTypeConfigs, nPudoDrivers);
     setZipGroups(groups);
     setPudoGroup(computedPudoGroup);
     setUnlocatedRows(unlocated);
+    setExtraAndarinZones(extra);
     setConfirmed(false);
     setStep("zones");
   }
@@ -118,6 +132,7 @@ function SetupPage() {
         groups={zipGroups}
         pudoGroup={pudoGroup}
         unlocated={unlocatedRows}
+        extraAndarinZones={extraAndarinZones}
         onGroupsChange={setZipGroups}
         onPudoGroupChange={setPudoGroup}
         onBack={() => setStep("setup")}
@@ -274,6 +289,24 @@ function SetupPage() {
                     <p className="mt-2 text-sm font-semibold text-accent">
                       ~{perDriver} paquetes por conductor
                     </p>
+                  )}
+                  {n > 0 && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {Array.from({ length: n }, (_, i) => {
+                        const currentType = driverTypesByZip[zip]?.[i] ?? "repartidor";
+                        return (
+                          <select
+                            key={i}
+                            value={currentType}
+                            onChange={(e) => updateDriverType(zip, i, e.target.value as DriverType)}
+                            className="rounded-lg border-2 border-border bg-background px-2 py-1.5 text-sm font-semibold text-foreground outline-none focus:border-accent"
+                          >
+                            <option value="repartidor">C{i + 1}: Repartidor</option>
+                            <option value="andarin">C{i + 1}: Andarín</option>
+                          </select>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               );

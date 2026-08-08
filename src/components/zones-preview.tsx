@@ -4,11 +4,14 @@ import {
   ArrowLeft,
   CheckCircle2,
   ChevronDown,
+  Footprints,
   MapPin,
   PackageCheck,
   PackageX,
   ScanLine,
   Save,
+  SplitSquareVertical,
+  Truck,
 } from "lucide-react";
 import type { EpodRow } from "@/lib/epod";
 import type { Zone, ZipGroup } from "@/lib/clustering";
@@ -20,6 +23,7 @@ export function ZonesPreview({
   groups,
   pudoGroup,
   unlocated,
+  extraAndarinZones,
   onGroupsChange,
   onPudoGroupChange,
   onBack,
@@ -29,6 +33,7 @@ export function ZonesPreview({
   groups: ZipGroup[];
   pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
+  extraAndarinZones: number;
   onGroupsChange: (groups: ZipGroup[]) => void;
   onPudoGroupChange: (group: ZipGroup) => void;
   onBack: () => void;
@@ -69,6 +74,17 @@ export function ZonesPreview({
           Vista previa de zonas. Ajusta los nombres antes de confirmar.
         </p>
       </header>
+
+      {extraAndarinZones > 0 && (
+        <div className="mb-6 flex items-start gap-2 rounded-xl bg-warning/15 p-3 text-sm font-semibold text-foreground">
+          <SplitSquareVertical className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+          <span>
+            Se {extraAndarinZones === 1 ? "creó 1 ruta adicional" : `crearon ${extraAndarinZones} rutas adicionales`}{" "}
+            de Andarín porque el área era muy dispersa para cubrirla a pie (más de 800 m entre
+            paradas).
+          </span>
+        </div>
+      )}
 
       <section className="mb-6 space-y-5">
         <h2 className="text-lg font-bold text-foreground">Zonas por Código Postal</h2>
@@ -220,6 +236,16 @@ function ZoneGroupCard({
                   style={{ backgroundColor: colors[zone.id] ?? "#999999" }}
                   aria-hidden
                 />
+                <span
+                  title={zone.driverType === "andarin" ? "Andarín" : "Repartidor"}
+                  className="shrink-0 rounded-lg bg-secondary p-1.5 text-foreground"
+                >
+                  {zone.driverType === "andarin" ? (
+                    <Footprints className="h-4 w-4" />
+                  ) : (
+                    <Truck className="h-4 w-4" />
+                  )}
+                </span>
                 <input
                   type="text"
                   value={zone.name}
@@ -243,6 +269,12 @@ function ZoneGroupCard({
                   <ChevronDown className={`h-5 w-5 transition-transform ${expanded ? "rotate-180" : ""}`} />
                 </button>
               </div>
+              {zone.autoSplit && (
+                <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-warning">
+                  <SplitSquareVertical className="h-3.5 w-3.5" />
+                  Dividida automáticamente por distancia (Andarín)
+                </p>
+              )}
               {expanded && (
                 <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-xl bg-background p-2">
                   {zone.points.map((p) => (

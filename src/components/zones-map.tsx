@@ -36,13 +36,16 @@ export default function ZonesMap({ zones, colors }: { zones: Zone[]; colors: Rec
       />
       {zones.map((zone) => {
         const color = colors[zone.id] ?? FALLBACK_COLOR;
+        // Andarín zones get a dashed outline so they read as "on foot" at a glance.
+        const pathOptions = {
+          color,
+          fillColor: color,
+          fillOpacity: 0.85,
+          weight: zone.driverType === "andarin" ? 2 : 1,
+          ...(zone.driverType === "andarin" ? { dashArray: "4 3" } : {}),
+        };
         return zone.points.map((p) => (
-          <CircleMarker
-            key={p.waybill}
-            center={[p.lat, p.lon]}
-            radius={7}
-            pathOptions={{ color, fillColor: color, fillOpacity: 0.85, weight: 1 }}
-          >
+          <CircleMarker key={p.waybill} center={[p.lat, p.lon]} radius={7} pathOptions={pathOptions}>
             <Popup>
               <strong>{zone.name}</strong>
               <br />

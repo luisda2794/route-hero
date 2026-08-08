@@ -1,8 +1,9 @@
-import type { ZipGroup } from "./clustering";
+import type { DriverType, ZipGroup } from "./clustering";
 
 export type WaybillAssignment = {
   waybill: string;
   driverNumber: number;
+  driverType: DriverType;
   zip: string;
   address: string;
   stopNumber: number;
@@ -35,6 +36,7 @@ export function buildAssignments(groups: ZipGroup[]): SavedAssignments {
         byWaybill[point.waybill] = {
           waybill: point.waybill,
           driverNumber: zone.driverNumber,
+          driverType: zone.driverType,
           // The package's own CP — for a PUDO zone, `zone.zip` is just the
           // synthetic "PUDO" label, since its points span every CP.
           zip: point.zip,

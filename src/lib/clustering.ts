@@ -11,11 +11,17 @@ export type ZonePoint = {
 /** A zone point with its visiting order within the route (1-based). */
 export type RoutedPoint = ZonePoint & { stopNumber: number };
 
+/** Andarín = on foot, needs stops close together. Repartidor = vehicle, no distance limit. */
+export type DriverType = "andarin" | "repartidor";
+
 export type Zone = {
   id: string;
   /** Real CP for a home zone; the constant `PUDO_LABEL` for a PUDO zone (its packages span every CP). */
   zip: string;
   kind: "home" | "pudo";
+  driverType: DriverType;
+  /** True if this zone is one of several produced by auto-splitting an Andarín zone that was too spread out. */
+  autoSplit: boolean;
   /** Sequential across the whole day — never resets per CP, and PUDO zones continue after every home zone. */
   driverNumber: number;
   name: string;
@@ -35,6 +41,8 @@ export type MultiZipClusterResult = {
   /** The consolidated PUDO route (all CPs pooled together), or null if not requested. */
   pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
+  /** How many extra zones were created beyond what was configured, from splitting Andarín zones. */
+  extraAndarinZones: number;
 };
 
 /** Synthetic "CP" label used for the consolidated PUDO route. */
@@ -42,6 +50,9 @@ export const PUDO_LABEL = "PUDO";
 
 /** How far a zone may drift above/below the target size before it's rebalanced. */
 export const BALANCE_MARGIN_RATIO = 0.3;
+
+/** An Andarín's route may never have two consecutive stops farther apart than this. */
+export const WALK_MAX_STOP_DISTANCE_KM = 0.8;
 
 const EARTH_RADIUS_KM = 6371;
 const MAX_ITERATIONS = 50;
@@ -193,6 +204,39 @@ function orderStopsNearestNeighbor(points: ZonePoint[]): RoutedPoint[] {
   return order.map((idx, stop) => ({ ...points[idx]!, stopNumber: stop + 1 }));
 }
 
+/**
+ * Splits an Andarín zone wherever two consecutive stops (in the already
+ * nearest-neighbor-ordered route) are farther apart than
+ * `WALK_MAX_STOP_DISTANCE_KM`. Since the route is a single ordered sequence,
+ * cutting at every such gap in one pass already guarantees no resulting
+ * sub-zone has an internal gap over the limit — no further passes needed.
+ * Returns `[zone]` unchanged if no gap exceeds the limit.
+ */
+function splitAndarinZone(zone: Zone): Zone[] {
+  if (zone.points.length <= 1) return [zone];
+
+  const segments: RoutedPoint[][] = [];
+  let current: RoutedPoint[] = [zone.points[0]!];
+  for (let i = 1; i < zone.points.length; i++) {
+    const dist = haversineDistance(zone.points[i - 1]!, zone.points[i]!);
+    if (dist > WALK_MAX_STOP_DISTANCE_KM) {
+      segments.push(current);
+      current = [];
+    }
+    current.push(zone.points[i]!);
+  }
+  segments.push(current);
+
+  if (segments.length <= 1) return [zone];
+
+  return segments.map((points, idx) => ({
+    ...zone,
+    id: `${zone.id}__split${idx}`,
+    autoSplit: true,
+    points: points.map((p, i) => ({ ...p, stopNumber: i + 1 })),
+  }));
+}
+
 function splitByCoords(rows: EpodRow[]): { located: ZonePoint[]; unlocated: EpodRow[] } {
   const located: ZonePoint[] = [];
   const unlocated: EpodRow[] = [];
@@ -227,12 +271,23 @@ function clusterIntoZones(
     id: `${idPrefix}__${idx}`,
     zip,
     kind,
+    driverType: "repartidor",
+    autoSplit: false,
     driverNumber: 0,
     name: "",
     points: orderStopsNearestNeighbor(points),
   }));
   for (let idx = zones.length; idx < driverCount; idx++) {
-    zones.push({ id: `${idPrefix}__${idx}`, zip, kind, driverNumber: 0, name: "", points: [] });
+    zones.push({
+      id: `${idPrefix}__${idx}`,
+      zip,
+      kind,
+      driverType: "repartidor",
+      autoSplit: false,
+      driverNumber: 0,
+      name: "",
+      points: [],
+    });
   }
 
   const targetSize = driverCount > 0 ? Math.round(located.length / driverCount) : 0;
@@ -240,12 +295,18 @@ function clusterIntoZones(
   return { zones, totalPackages: rows.length, targetSize, unlocated };
 }
 
-/** Clusters a single CP's home-delivery rows into `driverCount` zones. */
+/**
+ * Clusters a single CP's home-delivery rows into zones, one per entry in
+ * `types` (in slot order). Andarín zones whose route has a gap over
+ * `WALK_MAX_STOP_DISTANCE_KM` between consecutive stops get auto-split into
+ * extra zones — so the final zone count can exceed `types.length`.
+ */
 export function buildZonesForZip(
   rows: EpodRow[],
   zip: string,
-  driverCount: number,
-): { group: ZipGroup; unlocated: EpodRow[] } {
+  types: DriverType[],
+): { group: ZipGroup; unlocated: EpodRow[]; extraZones: number } {
+  const driverCount = types.length;
   const { zones, totalPackages, targetSize, unlocated } = clusterIntoZones(
     rows,
     driverCount,
@@ -253,7 +314,17 @@ export function buildZonesForZip(
     zip,
     "home",
   );
-  return { group: { zip, totalPackages, targetSize, zones }, unlocated };
+
+  const typedZones: Zone[] = zones.map((zone, i) => ({ ...zone, driverType: types[i] ?? "repartidor" }));
+  const finalZones: Zone[] = typedZones.flatMap((zone) =>
+    zone.driverType === "andarin" ? splitAndarinZone(zone) : [zone],
+  );
+
+  return {
+    group: { zip, totalPackages, targetSize, zones: finalZones },
+    unlocated,
+    extraZones: finalZones.length - driverCount,
+  };
 }
 
 /**
@@ -287,7 +358,7 @@ export function buildPudoZones(
  */
 export function buildZonesByZip(
   rows: EpodRow[],
-  driverCountByZip: Record<string, number>,
+  driverTypesByZip: Record<string, DriverType[]>,
   pudoDriverCount = 0,
 ): MultiZipClusterResult {
   const homeRows = rows.filter((r) => !isPudoDelivery(r.deliveryType));
@@ -303,13 +374,15 @@ export function buildZonesByZip(
 
   const groups: ZipGroup[] = [];
   const unlocated: EpodRow[] = [];
+  let extraAndarinZones = 0;
 
   for (const [zip, zipRows] of rowsByZip) {
-    const driverCount = driverCountByZip[zip] ?? 0;
-    if (driverCount <= 0) continue;
-    const { group, unlocated: zipUnlocated } = buildZonesForZip(zipRows, zip, driverCount);
+    const types = driverTypesByZip[zip] ?? [];
+    if (types.length <= 0) continue;
+    const { group, unlocated: zipUnlocated, extraZones } = buildZonesForZip(zipRows, zip, types);
     groups.push(group);
     unlocated.push(...zipUnlocated);
+    extraAndarinZones += extraZones;
   }
 
   groups.sort((a, b) => b.totalPackages - a.totalPackages);
@@ -337,7 +410,7 @@ export function buildZonesByZip(
     }
   }
 
-  return { groups, pudoGroup, unlocated };
+  return { groups, pudoGroup, unlocated, extraAndarinZones };
 }
 
 /**
