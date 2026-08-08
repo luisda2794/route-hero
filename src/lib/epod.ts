@@ -127,21 +127,21 @@ function toDateKey(value: unknown): string {
   const raw = String(value ?? "").trim();
   if (!raw) return "";
   const iso = raw.match(/(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (iso) return `${iso[1]}-${iso[2].padStart(2, "0")}-${iso[3].padStart(2, "0")}`;
+  if (iso) return `${iso[1]}-${iso[2]!.padStart(2, "0")}-${iso[3]!.padStart(2, "0")}`;
   const dmy = raw.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+  if (dmy) return `${dmy[3]}-${dmy[2]!.padStart(2, "0")}-${dmy[1]!.padStart(2, "0")}`;
   return raw;
 }
 
 export async function parseEpodFile(file: File): Promise<EpodParseResult> {
   const buffer = await file.arrayBuffer();
   const workbook = XLSX.read(buffer, { cellDates: true });
-  const sheetName = workbook.SheetNames[0];
+  const sheetName = workbook.SheetNames[0] ?? "";
   const sheet = workbook.Sheets[sheetName];
   if (!sheet) throw new Error("El archivo no contiene hojas legibles.");
 
   const raw = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
-  const headers = raw.length ? Object.keys(raw[0]) : [];
+  const headers = raw[0] ? Object.keys(raw[0]) : [];
   const columns = resolveColumns(headers);
   const missing = REQUIRED_COLUMNS.filter((key) => !columns[key]);
 
@@ -156,7 +156,7 @@ export async function parseEpodFile(file: File): Promise<EpodParseResult> {
   })).filter((r) => r.waybill);
 
   const dates = rows.map((r) => r.taskDate).filter(Boolean).sort();
-  const latestDate = dates.length ? dates[dates.length - 1] : "";
+  const latestDate = dates.length ? (dates[dates.length - 1] ?? "") : "";
 
   const todayRows = rows.filter((r) => (latestDate ? r.taskDate === latestDate : true));
   const statusCounts: Record<string, number> = {};
