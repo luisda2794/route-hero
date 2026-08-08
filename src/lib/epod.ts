@@ -103,7 +103,7 @@ export type EpodParseResult = {
   statusCounts: Record<string, number>;
   inDeliveryToday: number;
   withoutCoords: number;
-  /** Rows already filtered to today's date and in-delivery status. */
+  /** Every row for the detected date, regardless of task status. */
   inDeliveryRows: EpodRow[];
 };
 
@@ -125,13 +125,6 @@ export function summarizeByZipAndType(rows: EpodRow[]): ZipTypeSummary[] {
   return [...counts.entries()]
     .map(([zip, { homeCount, pudoCount }]) => ({ zip, homeCount, pudoCount }))
     .sort((a, b) => b.homeCount + b.pudoCount - (a.homeCount + a.pudoCount));
-}
-
-const DELIVERY_STATUSES = ["driver_received", "driver_received_incidencias"];
-
-export function isInDeliveryStatus(status: string) {
-  const norm = normalizeHeader(status).replace(/ /g, "_");
-  return DELIVERY_STATUSES.some((s) => norm === s || norm.startsWith("driver_received"));
 }
 
 /** PUDO/locker deliveries — everything else (e.g. "TO_DOOR") is a regular home delivery. */
@@ -199,7 +192,9 @@ export async function parseEpodFile(file: File): Promise<EpodParseResult> {
     statusCounts[key] = (statusCounts[key] ?? 0) + 1;
   }
 
-  const inDelivery = todayRows.filter((r) => isInDeliveryStatus(r.taskStatus));
+  // Route every package for the detected date, regardless of task status —
+  // e.g. "Attempt Failure" still needs a driver/area assigned for a retry.
+  const inDelivery = todayRows;
 
   return {
     fileName: file.name,

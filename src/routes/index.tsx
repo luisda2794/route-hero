@@ -225,7 +225,7 @@ function SetupPage() {
             <div className="grid grid-cols-2 gap-3">
               <Stat label="Fecha detectada" value={result.latestDate || "—"} />
               <Stat label="Filas en archivo" value={String(result.rows.length)} />
-              <Stat label="En reparto hoy" value={String(result.inDeliveryToday)} highlight />
+              <Stat label="A enrutar hoy" value={String(result.inDeliveryToday)} highlight />
               <Stat label="Sin coordenadas" value={String(result.withoutCoords)} />
             </div>
 
