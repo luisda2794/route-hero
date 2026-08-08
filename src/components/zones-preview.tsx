@@ -1,17 +1,16 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   ChevronDown,
   Footprints,
   MapPin,
-  Merge,
   PackageCheck,
   PackageX,
   ScanLine,
   Save,
-  SplitSquareVertical,
   Truck,
 } from "lucide-react";
 import type { EpodRow } from "@/lib/epod";
@@ -24,8 +23,6 @@ export function ZonesPreview({
   groups,
   pudoGroup,
   unlocated,
-  extraSplitZones,
-  mergedZones,
   onGroupsChange,
   onPudoGroupChange,
   onBack,
@@ -35,8 +32,6 @@ export function ZonesPreview({
   groups: ZipGroup[];
   pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
-  extraSplitZones: number;
-  mergedZones: number;
   onGroupsChange: (groups: ZipGroup[]) => void;
   onPudoGroupChange: (group: ZipGroup) => void;
   onBack: () => void;
@@ -74,35 +69,10 @@ export function ZonesPreview({
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Paso 3 de 4</p>
         <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">RUTAFACIL</h1>
         <p className="mt-2 text-base text-muted-foreground">
-          Vista previa de zonas. Ajusta los nombres antes de confirmar.
+          Vista previa de zonas. Cada CP tiene exactamente las áreas que pediste — ajusta los
+          nombres antes de confirmar.
         </p>
       </header>
-
-      {(mergedZones > 0 || extraSplitZones > 0) && (
-        <div className="mb-6 space-y-3">
-          {mergedZones > 0 && (
-            <div className="flex items-start gap-2 rounded-xl bg-warning/15 p-3 text-sm font-semibold text-foreground">
-              <Merge className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
-              <span>
-                Se {mergedZones === 1 ? "combinó 1 área" : `combinaron ${mergedZones} áreas`} con menos de{" "}
-                {MIN_AREA_SIZE} paquetes con su vecina más cercana — por eso puede haber menos zonas
-                de las que pediste.
-              </span>
-            </div>
-          )}
-          {extraSplitZones > 0 && (
-            <div className="flex items-start gap-2 rounded-xl bg-warning/15 p-3 text-sm font-semibold text-foreground">
-              <SplitSquareVertical className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
-              <span>
-                Se{" "}
-                {extraSplitZones === 1 ? "creó 1 área adicional" : `crearon ${extraSplitZones} áreas adicionales`}{" "}
-                al dividir automáticamente zonas con más de {MAX_AREA_SIZE} paquetes, o rutas de
-                Andarín demasiado dispersas para ir a pie (más de 800 m entre paradas).
-              </span>
-            </div>
-          )}
-        </div>
-      )}
 
       <section className="mb-6 space-y-5">
         <h2 className="text-lg font-bold text-foreground">Zonas por Código Postal</h2>
@@ -233,6 +203,12 @@ function ZoneGroupCard({
       <div className="space-y-2">
         {group.zones.map((zone: Zone) => {
           const expanded = expandedZoneId === zone.id;
+          const warnings: string[] = [];
+          if (zone.isOversized) warnings.push(`más de ${MAX_AREA_SIZE} paquetes`);
+          if (zone.isUndersized) warnings.push(`menos de ${MIN_AREA_SIZE} paquetes`);
+          if (zone.driverType === "andarin" && zone.hasLongWalkGap) {
+            warnings.push("más de 800 m entre algunas paradas");
+          }
           return (
             <div key={zone.id} className="rounded-2xl bg-card p-3 shadow-sm">
               <div className="flex items-center gap-3">
@@ -270,15 +246,10 @@ function ZoneGroupCard({
                   <ChevronDown className={`h-5 w-5 transition-transform ${expanded ? "rotate-180" : ""}`} />
                 </button>
               </div>
-              {(zone.splitBySize || zone.splitByDistance) && (
+              {warnings.length > 0 && (
                 <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-warning">
-                  <SplitSquareVertical className="h-3.5 w-3.5" />
-                  Dividida automáticamente
-                  {zone.splitBySize && zone.splitByDistance
-                    ? ` (más de ${MAX_AREA_SIZE} paquetes y más de 800 m entre paradas)`
-                    : zone.splitBySize
-                      ? ` (más de ${MAX_AREA_SIZE} paquetes)`
-                      : " (más de 800 m entre paradas, Andarín)"}
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  {warnings.join(" · ")}
                 </p>
               )}
               {expanded && (

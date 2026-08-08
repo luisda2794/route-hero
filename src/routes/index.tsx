@@ -55,8 +55,6 @@ function SetupPage() {
   const [zipGroups, setZipGroups] = useState<ZipGroup[]>([]);
   const [pudoGroup, setPudoGroup] = useState<ZipGroup | null>(null);
   const [unlocatedRows, setUnlocatedRows] = useState<EpodRow[]>([]);
-  const [extraSplitZones, setExtraSplitZones] = useState(0);
-  const [mergedZones, setMergedZones] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
 
   async function handleFile(file: File | undefined) {
@@ -107,18 +105,14 @@ function SetupPage() {
       const types = driverTypesByZip[zip] ?? [];
       driverTypeConfigs[zip] = Array.from({ length: n }, (_, i) => types[i] ?? "repartidor");
     }
-    const {
-      groups,
-      pudoGroup: computedPudoGroup,
-      unlocated,
-      extraSplitZones: extra,
-      mergedZones: merged,
-    } = buildZonesByZip(result.inDeliveryRows, driverTypeConfigs, nPudoDrivers);
+    const { groups, pudoGroup: computedPudoGroup, unlocated } = buildZonesByZip(
+      result.inDeliveryRows,
+      driverTypeConfigs,
+      nPudoDrivers,
+    );
     setZipGroups(groups);
     setPudoGroup(computedPudoGroup);
     setUnlocatedRows(unlocated);
-    setExtraSplitZones(extra);
-    setMergedZones(merged);
     setConfirmed(false);
     setStep("zones");
   }
@@ -135,8 +129,6 @@ function SetupPage() {
         groups={zipGroups}
         pudoGroup={pudoGroup}
         unlocated={unlocatedRows}
-        extraSplitZones={extraSplitZones}
-        mergedZones={mergedZones}
         onGroupsChange={setZipGroups}
         onPudoGroupChange={setPudoGroup}
         onBack={() => setStep("setup")}
