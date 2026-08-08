@@ -1,21 +1,24 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
-  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   ChevronDown,
+  Cloud,
+  CloudOff,
   Footprints,
+  Loader2,
   MapPin,
   PackageCheck,
   PackageX,
   ScanLine,
   Save,
+  SplitSquareVertical,
   Truck,
 } from "lucide-react";
 import type { EpodRow } from "@/lib/epod";
 import type { Zone, ZipGroup } from "@/lib/clustering";
-import { MAX_AREA_SIZE, MIN_AREA_SIZE, assignZoneColors } from "@/lib/clustering";
+import { MAX_AREA_SIZE, assignZoneColors } from "@/lib/clustering";
 
 const ZonesMap = lazy(() => import("./zones-map"));
 
@@ -23,20 +26,24 @@ export function ZonesPreview({
   groups,
   pudoGroup,
   unlocated,
+  extraSplitZones,
   onGroupsChange,
   onPudoGroupChange,
   onBack,
   onConfirm,
   confirmed,
+  remoteSaveStatus,
 }: {
   groups: ZipGroup[];
   pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
+  extraSplitZones: number;
   onGroupsChange: (groups: ZipGroup[]) => void;
   onPudoGroupChange: (group: ZipGroup) => void;
   onBack: () => void;
   onConfirm: () => void;
   confirmed: boolean;
+  remoteSaveStatus: "idle" | "saving" | "ok" | "error";
 }) {
   const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
@@ -69,10 +76,20 @@ export function ZonesPreview({
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Paso 3 de 4</p>
         <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">RUTAFACIL</h1>
         <p className="mt-2 text-base text-muted-foreground">
-          Vista previa de zonas. Cada CP tiene exactamente las áreas que pediste — ajusta los
-          nombres antes de confirmar.
+          Vista previa de zonas. Ajusta los nombres antes de confirmar.
         </p>
       </header>
+
+      {extraSplitZones > 0 && (
+        <div className="mb-6 flex items-start gap-2 rounded-xl bg-warning/15 p-3 text-sm font-semibold text-foreground">
+          <SplitSquareVertical className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+          <span>
+            Se {extraSplitZones === 1 ? "creó 1 área adicional" : `crearon ${extraSplitZones} áreas adicionales`}{" "}
+            porque el volumen superaba el máximo de {MAX_AREA_SIZE} paquetes, o una ruta de Andarín
+            quedó demasiado dispersa para ir a pie (más de 800 m entre paradas).
+          </span>
+        </div>
+      )}
 
       <section className="mb-6 space-y-5">
         <h2 className="text-lg font-bold text-foreground">Zonas por Código Postal</h2>
@@ -159,6 +176,28 @@ export function ZonesPreview({
             </>
           )}
         </button>
+        {confirmed && remoteSaveStatus !== "idle" && (
+          <p className="flex items-center justify-center gap-1.5 text-sm font-semibold text-muted-foreground">
+            {remoteSaveStatus === "saving" && (
+              <>
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Guardando para consulta desde cualquier dispositivo…
+              </>
+            )}
+            {remoteSaveStatus === "ok" && (
+              <>
+                <Cloud className="h-4 w-4 text-success" />
+                Disponible en /consulta desde cualquier dispositivo
+              </>
+            )}
+            {remoteSaveStatus === "error" && (
+              <>
+                <CloudOff className="h-4 w-4 text-destructive" />
+                No se pudo guardar en la nube — /consulta no tendrá esta sesión (revisa tu conexión)
+              </>
+            )}
+          </p>
+        )}
         {confirmed && (
           <button
             type="button"
@@ -203,12 +242,6 @@ function ZoneGroupCard({
       <div className="space-y-2">
         {group.zones.map((zone: Zone) => {
           const expanded = expandedZoneId === zone.id;
-          const warnings: string[] = [];
-          if (zone.isOversized) warnings.push(`más de ${MAX_AREA_SIZE} paquetes`);
-          if (zone.isUndersized) warnings.push(`menos de ${MIN_AREA_SIZE} paquetes`);
-          if (zone.driverType === "andarin" && zone.hasLongWalkGap) {
-            warnings.push("más de 800 m entre algunas paradas");
-          }
           return (
             <div key={zone.id} className="rounded-2xl bg-card p-3 shadow-sm">
               <div className="flex items-center gap-3">
@@ -246,10 +279,15 @@ function ZoneGroupCard({
                   <ChevronDown className={`h-5 w-5 transition-transform ${expanded ? "rotate-180" : ""}`} />
                 </button>
               </div>
-              {warnings.length > 0 && (
+              {(zone.splitBySize || zone.splitByDistance) && (
                 <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-warning">
-                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-                  {warnings.join(" · ")}
+                  <SplitSquareVertical className="h-3.5 w-3.5 shrink-0" />
+                  Dividida automáticamente
+                  {zone.splitBySize && zone.splitByDistance
+                    ? ` (más de ${MAX_AREA_SIZE} paquetes y más de 800 m entre paradas)`
+                    : zone.splitBySize
+                      ? ` (más de ${MAX_AREA_SIZE} paquetes)`
+                      : " (más de 800 m entre paradas, Andarín)"}
                 </p>
               )}
               {expanded && (

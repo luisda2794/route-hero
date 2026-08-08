@@ -9,7 +9,7 @@ import {
   type ColumnKey,
 } from "@/lib/epod";
 import { buildZonesByZip, type DriverType, type ZipGroup } from "@/lib/clustering";
-import { buildAssignments, saveAssignments } from "@/lib/assignment";
+import { buildAssignments, saveAssignments, saveAssignmentsRemote } from "@/lib/assignment";
 import { ZonesPreview } from "@/components/zones-preview";
 
 export const Route = createFileRoute("/")({
@@ -55,7 +55,9 @@ function SetupPage() {
   const [zipGroups, setZipGroups] = useState<ZipGroup[]>([]);
   const [pudoGroup, setPudoGroup] = useState<ZipGroup | null>(null);
   const [unlocatedRows, setUnlocatedRows] = useState<EpodRow[]>([]);
+  const [extraSplitZones, setExtraSplitZones] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
+  const [remoteSaveStatus, setRemoteSaveStatus] = useState<"idle" | "saving" | "ok" | "error">("idle");
 
   async function handleFile(file: File | undefined) {
     if (!file) return;
@@ -105,22 +107,28 @@ function SetupPage() {
       const types = driverTypesByZip[zip] ?? [];
       driverTypeConfigs[zip] = Array.from({ length: n }, (_, i) => types[i] ?? "repartidor");
     }
-    const { groups, pudoGroup: computedPudoGroup, unlocated } = buildZonesByZip(
-      result.inDeliveryRows,
-      driverTypeConfigs,
-      nPudoDrivers,
-    );
+    const {
+      groups,
+      pudoGroup: computedPudoGroup,
+      unlocated,
+      extraSplitZones: extra,
+    } = buildZonesByZip(result.inDeliveryRows, driverTypeConfigs, nPudoDrivers);
     setZipGroups(groups);
     setPudoGroup(computedPudoGroup);
     setUnlocatedRows(unlocated);
+    setExtraSplitZones(extra);
     setConfirmed(false);
     setStep("zones");
   }
 
   function handleConfirm() {
     const allGroups = pudoGroup ? [...zipGroups, pudoGroup] : zipGroups;
-    saveAssignments(buildAssignments(allGroups));
+    const assignments = buildAssignments(allGroups);
+    saveAssignments(assignments);
     setConfirmed(true);
+
+    setRemoteSaveStatus("saving");
+    void saveAssignmentsRemote(assignments).then((ok) => setRemoteSaveStatus(ok ? "ok" : "error"));
   }
 
   if (step === "zones" && result) {
@@ -129,11 +137,13 @@ function SetupPage() {
         groups={zipGroups}
         pudoGroup={pudoGroup}
         unlocated={unlocatedRows}
+        extraSplitZones={extraSplitZones}
         onGroupsChange={setZipGroups}
         onPudoGroupChange={setPudoGroup}
         onBack={() => setStep("setup")}
         onConfirm={handleConfirm}
         confirmed={confirmed}
+        remoteSaveStatus={remoteSaveStatus}
       />
     );
   }
