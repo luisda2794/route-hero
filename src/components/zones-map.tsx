@@ -3,7 +3,8 @@ import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaf
 import type { LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Zone } from "@/lib/clustering";
-import { ZONE_COLORS } from "@/lib/clustering";
+
+const FALLBACK_COLOR = "#3388ff";
 
 const MADRID_CENTER: LatLngExpression = [40.4168, -3.7038];
 
@@ -17,7 +18,7 @@ function FitBounds({ points }: { points: LatLngExpression[] }) {
 }
 
 /** Client-only Leaflet map — must be lazy-loaded, never imported during SSR. */
-export default function ZonesMap({ zones }: { zones: Zone[] }) {
+export default function ZonesMap({ zones, colors }: { zones: Zone[]; colors: Record<string, string> }) {
   const allPoints: LatLngExpression[] = zones.flatMap((zone) =>
     zone.points.map((p): LatLngExpression => [p.lat, p.lon]),
   );
@@ -33,8 +34,8 @@ export default function ZonesMap({ zones }: { zones: Zone[] }) {
         attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
       />
-      {zones.map((zone, zoneIdx) => {
-        const color = ZONE_COLORS[zoneIdx % ZONE_COLORS.length]!;
+      {zones.map((zone) => {
+        const color = colors[zone.id] ?? FALLBACK_COLOR;
         return zone.points.map((p) => (
           <CircleMarker
             key={p.waybill}

@@ -1,4 +1,4 @@
-import type { EpodRow } from "./epod";
+import { NO_ZIP_LABEL, type EpodRow } from "./epod";
 
 export type ZonePoint = {
   waybill: string;
@@ -9,36 +9,27 @@ export type ZonePoint = {
 };
 
 export type Zone = {
-  id: number;
+  id: string;
+  zip: string;
   name: string;
   points: ZonePoint[];
 };
 
-export type ClusterResult = {
-  zones: Zone[];
-  unlocated: EpodRow[];
-  /** Target packages per zone (located packages ÷ zones actually created). */
+/** One CP's worth of zones, clustered independently from every other CP. */
+export type ZipGroup = {
+  zip: string;
+  totalPackages: number;
   targetSize: number;
+  zones: Zone[];
+};
+
+export type MultiZipClusterResult = {
+  groups: ZipGroup[];
+  unlocated: EpodRow[];
 };
 
 /** How far a zone may drift above/below the target size before it's rebalanced. */
 export const BALANCE_MARGIN_RATIO = 0.3;
-
-/** Distinct, high-contrast colors — enough for up to 12 driver zones. */
-export const ZONE_COLORS = [
-  "#e6194b",
-  "#3cb44b",
-  "#4363d8",
-  "#f58231",
-  "#911eb4",
-  "#42d4f4",
-  "#f032e6",
-  "#bfef45",
-  "#469990",
-  "#9a6324",
-  "#000075",
-  "#f5c518",
-];
 
 const EARTH_RADIUS_KM = 6371;
 const MAX_ITERATIONS = 50;
@@ -143,14 +134,9 @@ export function kmeans(points: ZonePoint[], k: number, maxIterations = MAX_ITERA
   return clusters;
 }
 
-/**
- * Splits in-delivery rows into geolocated / unlocated, then clusters the
- * geolocated ones into `driverCount` zones by real proximity (K-means).
- */
-export function buildZones(rows: EpodRow[], driverCount: number): ClusterResult {
+function splitByCoords(rows: EpodRow[]): { located: ZonePoint[]; unlocated: EpodRow[] } {
   const located: ZonePoint[] = [];
   const unlocated: EpodRow[] = [];
-
   for (const row of rows) {
     if (row.lat !== null && row.lon !== null) {
       located.push({ waybill: row.waybill, address: row.address, zip: row.zip, lat: row.lat, lon: row.lon });
@@ -158,15 +144,88 @@ export function buildZones(rows: EpodRow[], driverCount: number): ClusterResult 
       unlocated.push(row);
     }
   }
+  return { located, unlocated };
+}
 
+/**
+ * Clusters a single CP's rows into `driverCount` zones. Always returns
+ * `driverCount` zones (named "CP {zip} — Conductor N") even if some end up
+ * with very few — or zero — packages, e.g. when a CP has fewer packages
+ * than drivers requested.
+ */
+export function buildZonesForZip(
+  rows: EpodRow[],
+  zip: string,
+  driverCount: number,
+): { group: ZipGroup; unlocated: EpodRow[] } {
+  const { located, unlocated } = splitByCoords(rows);
   const clusters = kmeans(located, driverCount);
+
   const zones: Zone[] = clusters.map((points, idx) => ({
-    id: idx,
-    name: `Conductor ${idx + 1}`,
+    id: `${zip}__${idx}`,
+    zip,
+    name: `CP ${zip} — Conductor ${idx + 1}`,
     points,
   }));
+  for (let idx = zones.length; idx < driverCount; idx++) {
+    zones.push({ id: `${zip}__${idx}`, zip, name: `CP ${zip} — Conductor ${idx + 1}`, points: [] });
+  }
 
-  const targetSize = zones.length ? Math.round(located.length / zones.length) : 0;
+  const targetSize = driverCount > 0 ? Math.round(located.length / driverCount) : 0;
 
-  return { zones, unlocated, targetSize };
+  return {
+    group: { zip, totalPackages: rows.length, targetSize, zones },
+    unlocated,
+  };
+}
+
+/**
+ * Groups in-delivery rows by CP, then clusters each CP independently using
+ * its own driver count — packages from one CP never end up in another CP's
+ * zone. CPs left blank or at 0 drivers are skipped entirely (no zones).
+ */
+export function buildZonesByZip(
+  rows: EpodRow[],
+  driverCountByZip: Record<string, number>,
+): MultiZipClusterResult {
+  const rowsByZip = new Map<string, EpodRow[]>();
+  for (const row of rows) {
+    const key = row.zip || NO_ZIP_LABEL;
+    const bucket = rowsByZip.get(key);
+    if (bucket) bucket.push(row);
+    else rowsByZip.set(key, [row]);
+  }
+
+  const groups: ZipGroup[] = [];
+  const unlocated: EpodRow[] = [];
+
+  for (const [zip, zipRows] of rowsByZip) {
+    const driverCount = driverCountByZip[zip] ?? 0;
+    if (driverCount <= 0) continue;
+    const { group, unlocated: zipUnlocated } = buildZonesForZip(zipRows, zip, driverCount);
+    groups.push(group);
+    unlocated.push(...zipUnlocated);
+  }
+
+  groups.sort((a, b) => b.totalPackages - a.totalPackages);
+
+  return { groups, unlocated };
+}
+
+/**
+ * Distinct hue per CP (golden-angle spacing keeps hues well spread no matter
+ * how many CPs there are), distinct lightness per zone within that CP — so
+ * zones from the same CP read as a family of tones at a glance.
+ */
+export function assignZoneColors(groups: ZipGroup[]): Record<string, string> {
+  const colors: Record<string, string> = {};
+  groups.forEach((group, groupIdx) => {
+    const hue = (groupIdx * 137.508) % 360;
+    const zonesInGroup = group.zones.length;
+    group.zones.forEach((zone, zoneIdx) => {
+      const lightness = zonesInGroup <= 1 ? 48 : 36 + (zoneIdx / (zonesInGroup - 1)) * 26;
+      colors[zone.id] = `hsl(${hue.toFixed(1)} 72% ${lightness.toFixed(1)}%)`;
+    });
+  });
+  return colors;
 }

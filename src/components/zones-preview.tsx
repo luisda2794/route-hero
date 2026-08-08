@@ -1,24 +1,22 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CheckCircle2, MapPin, PackageX, Save } from "lucide-react";
 import type { EpodRow } from "@/lib/epod";
-import type { Zone } from "@/lib/clustering";
-import { BALANCE_MARGIN_RATIO, ZONE_COLORS } from "@/lib/clustering";
+import type { ZipGroup } from "@/lib/clustering";
+import { BALANCE_MARGIN_RATIO, assignZoneColors } from "@/lib/clustering";
 
 const ZonesMap = lazy(() => import("./zones-map"));
 
 export function ZonesPreview({
-  zones,
-  targetSize,
+  groups,
   unlocated,
-  onZonesChange,
+  onGroupsChange,
   onBack,
   onConfirm,
   confirmed,
 }: {
-  zones: Zone[];
-  targetSize: number;
+  groups: ZipGroup[];
   unlocated: EpodRow[];
-  onZonesChange: (zones: Zone[]) => void;
+  onGroupsChange: (groups: ZipGroup[]) => void;
   onBack: () => void;
   onConfirm: () => void;
   confirmed: boolean;
@@ -26,11 +24,15 @@ export function ZonesPreview({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const lowerMargin = targetSize * (1 - BALANCE_MARGIN_RATIO);
-  const upperMargin = targetSize * (1 + BALANCE_MARGIN_RATIO);
+  const zoneColors = useMemo(() => assignZoneColors(groups), [groups]);
+  const allZones = useMemo(() => groups.flatMap((g) => g.zones), [groups]);
 
-  function renameZone(id: number, name: string) {
-    onZonesChange(zones.map((z) => (z.id === id ? { ...z, name } : z)));
+  function renameZone(zip: string, zoneId: string, name: string) {
+    onGroupsChange(
+      groups.map((g) =>
+        g.zip === zip ? { ...g, zones: g.zones.map((z) => (z.id === zoneId ? { ...z, name } : z)) } : g,
+      ),
+    );
   }
 
   return (
@@ -43,42 +45,55 @@ export function ZonesPreview({
         </p>
       </header>
 
-      <section className="mb-6 space-y-3">
-        <div className="flex items-baseline justify-between gap-2">
-          <h2 className="text-lg font-bold text-foreground">Zonas ({zones.length})</h2>
-          {targetSize > 0 && (
-            <span className="text-sm font-semibold text-muted-foreground">
-              Objetivo: ~{targetSize} paquetes por zona
-            </span>
-          )}
-        </div>
-        {zones.map((zone, idx) => {
-          const color = ZONE_COLORS[idx % ZONE_COLORS.length]!;
-          const outOfMargin =
-            targetSize > 0 && (zone.points.length < lowerMargin || zone.points.length > upperMargin);
+      <section className="mb-6 space-y-5">
+        <h2 className="text-lg font-bold text-foreground">Zonas por Código Postal</h2>
+        {groups.map((group) => {
+          const lowerMargin = group.targetSize * (1 - BALANCE_MARGIN_RATIO);
+          const upperMargin = group.targetSize * (1 + BALANCE_MARGIN_RATIO);
           return (
-            <div
-              key={zone.id}
-              className="flex items-center gap-3 rounded-2xl bg-card p-3 shadow-sm"
-            >
-              <span
-                className="h-4 w-4 shrink-0 rounded-full"
-                style={{ backgroundColor: color }}
-                aria-hidden
-              />
-              <input
-                type="text"
-                value={zone.name}
-                onChange={(e) => renameZone(zone.id, e.target.value)}
-                className="min-w-0 flex-1 rounded-xl border-2 border-border bg-background px-3 py-2 text-base font-bold text-foreground outline-none focus:border-accent"
-              />
-              <span
-                className={`shrink-0 rounded-lg px-2.5 py-1 text-sm font-black ${
-                  outOfMargin ? "bg-destructive/15 text-destructive" : "bg-accent/15 text-foreground"
-                }`}
-              >
-                {zone.points.length}
-              </span>
+            <div key={group.zip} className="space-y-2">
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="text-base font-black text-foreground">CP {group.zip}</h3>
+                {group.targetSize > 0 && (
+                  <span className="text-sm font-semibold text-muted-foreground">
+                    Objetivo: ~{group.targetSize} paquetes por zona
+                  </span>
+                )}
+              </div>
+              <div className="space-y-2">
+                {group.zones.map((zone) => {
+                  const outOfMargin =
+                    group.targetSize > 0 &&
+                    (zone.points.length < lowerMargin || zone.points.length > upperMargin);
+                  return (
+                    <div
+                      key={zone.id}
+                      className="flex items-center gap-3 rounded-2xl bg-card p-3 shadow-sm"
+                    >
+                      <span
+                        className="h-4 w-4 shrink-0 rounded-full"
+                        style={{ backgroundColor: zoneColors[zone.id] ?? "#999999" }}
+                        aria-hidden
+                      />
+                      <input
+                        type="text"
+                        value={zone.name}
+                        onChange={(e) => renameZone(group.zip, zone.id, e.target.value)}
+                        className="min-w-0 flex-1 rounded-xl border-2 border-border bg-background px-3 py-2 text-base font-bold text-foreground outline-none focus:border-accent"
+                      />
+                      <span
+                        className={`shrink-0 rounded-lg px-2.5 py-1 text-sm font-black ${
+                          outOfMargin
+                            ? "bg-destructive/15 text-destructive"
+                            : "bg-accent/15 text-foreground"
+                        }`}
+                      >
+                        {zone.points.length}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           );
         })}
@@ -95,7 +110,7 @@ export function ZonesPreview({
               <div key={row.waybill} className="flex justify-between gap-2 text-sm">
                 <span className="truncate font-semibold text-foreground">{row.waybill}</span>
                 <span className="truncate text-muted-foreground">
-                  {row.address || row.zip || "—"}
+                  {row.zip ? `CP ${row.zip}` : "Sin CP"} · {row.address || "—"}
                 </span>
               </div>
             ))}
@@ -112,7 +127,7 @@ export function ZonesPreview({
           <Suspense
             fallback={<div className="h-80 w-full animate-pulse rounded-2xl bg-secondary" />}
           >
-            <ZonesMap zones={zones} />
+            <ZonesMap zones={allZones} colors={zoneColors} />
           </Suspense>
         ) : (
           <div className="h-80 w-full animate-pulse rounded-2xl bg-secondary" />

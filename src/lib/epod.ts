@@ -103,6 +103,23 @@ export type EpodParseResult = {
   inDeliveryRows: EpodRow[];
 };
 
+/** Bucket label for rows with no CP detected. */
+export const NO_ZIP_LABEL = "(sin CP)";
+
+export type ZipSummary = { zip: string; count: number };
+
+/** Packages per CP, sorted from highest to lowest volume. */
+export function summarizeByZip(rows: EpodRow[]): ZipSummary[] {
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const key = row.zip || NO_ZIP_LABEL;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([zip, count]) => ({ zip, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
 const DELIVERY_STATUSES = ["driver_received", "driver_received_incidencias"];
 
 export function isInDeliveryStatus(status: string) {

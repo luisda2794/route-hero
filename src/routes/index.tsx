@@ -1,8 +1,8 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
-import { parseEpodFile, type EpodParseResult, type ColumnKey } from "@/lib/epod";
-import { buildZones, type Zone } from "@/lib/clustering";
+import { parseEpodFile, summarizeByZip, type EpodParseResult, type EpodRow, type ColumnKey } from "@/lib/epod";
+import { buildZonesByZip, type ZipGroup } from "@/lib/clustering";
 import { ZonesPreview } from "@/components/zones-preview";
 
 export const Route = createFileRoute("/")({
@@ -12,12 +12,12 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Sube el ePOD del día, indica cuántos conductores tienes y calcula las zonas de reparto.",
+          "Sube el ePOD del día, indica cuántos conductores quieres por Código Postal y calcula las zonas de reparto.",
       },
       { property: "og:title", content: "RutaFacil — Configuración del día" },
       {
         property: "og:description",
-        content: "Sube el ePOD, define conductores y paquetes por conductor.",
+        content: "Sube el ePOD y define conductores por Código Postal.",
       },
     ],
   }),
@@ -40,11 +40,10 @@ function SetupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<EpodParseResult | null>(null);
-  const [drivers, setDrivers] = useState("");
-  const [perDriver, setPerDriver] = useState("");
+  const [driversByZip, setDriversByZip] = useState<Record<string, string>>({});
   const [step, setStep] = useState<"setup" | "zones">("setup");
-  const [zones, setZones] = useState<Zone[]>([]);
-  const [targetSize, setTargetSize] = useState(0);
+  const [zipGroups, setZipGroups] = useState<ZipGroup[]>([]);
+  const [unlocatedRows, setUnlocatedRows] = useState<EpodRow[]>([]);
   const [savedAssignment, setSavedAssignment] = useState<Record<string, string> | null>(null);
 
   async function handleFile(file: File | undefined) {
@@ -68,25 +67,32 @@ function SetupPage() {
   }
 
   const total = result?.inDeliveryToday ?? 0;
-  const nDrivers = Number(drivers) || 0;
-  const nPerDriver = Number(perDriver) || 0;
-  const suggestedZones = total && nPerDriver ? Math.max(1, Math.ceil(total / nPerDriver)) : 0;
-  const canCalculate = Boolean(result && total > 0 && nDrivers > 0);
+  const zipSummary = result ? summarizeByZip(result.inDeliveryRows) : [];
+  const canCalculate = Boolean(
+    result && total > 0 && Object.values(driversByZip).some((v) => Number(v) > 0),
+  );
 
   function handleCalculate() {
-    if (!result || nDrivers <= 0) return;
-    const { zones: computed, targetSize: target } = buildZones(result.inDeliveryRows, nDrivers);
-    setZones(computed);
-    setTargetSize(target);
+    if (!result) return;
+    const driverCounts: Record<string, number> = {};
+    for (const [zip, value] of Object.entries(driversByZip)) {
+      const n = Number(value);
+      if (n > 0) driverCounts[zip] = n;
+    }
+    const { groups, unlocated } = buildZonesByZip(result.inDeliveryRows, driverCounts);
+    setZipGroups(groups);
+    setUnlocatedRows(unlocated);
     setSavedAssignment(null);
     setStep("zones");
   }
 
   function handleConfirm() {
     const assignment: Record<string, string> = {};
-    for (const zone of zones) {
-      for (const point of zone.points) {
-        assignment[point.waybill] = zone.name;
+    for (const group of zipGroups) {
+      for (const zone of group.zones) {
+        for (const point of zone.points) {
+          assignment[point.waybill] = zone.name;
+        }
       }
     }
     setSavedAssignment(assignment);
@@ -95,10 +101,9 @@ function SetupPage() {
   if (step === "zones" && result) {
     return (
       <ZonesPreview
-        zones={zones}
-        targetSize={targetSize}
-        unlocated={result.inDeliveryRows.filter((r) => r.lat === null || r.lon === null)}
-        onZonesChange={setZones}
+        groups={zipGroups}
+        unlocated={unlocatedRows}
+        onGroupsChange={setZipGroups}
         onBack={() => setStep("setup")}
         onConfirm={handleConfirm}
         confirmed={savedAssignment !== null}
@@ -213,28 +218,47 @@ function SetupPage() {
         )}
       </section>
 
-      <section className="mb-6 space-y-4">
-        <h2 className="text-lg font-bold text-foreground">2. Conductores y carga</h2>
-        <NumberField
-          label="¿Cuántos conductores tienes hoy?"
-          value={drivers}
-          onChange={setDrivers}
-          placeholder="Ej. 6"
-        />
-        <NumberField
-          label="¿Cuántos paquetes aprox. por conductor?"
-          value={perDriver}
-          onChange={setPerDriver}
-          placeholder="Ej. 80"
-          hint="Orientativo: sirve para sugerir cuántas zonas crear."
-        />
-        {suggestedZones > 0 && (
-          <p className="rounded-xl bg-accent/15 p-3 text-sm font-semibold text-foreground">
-            Con {total} paquetes y {nPerDriver} por conductor, se sugieren{" "}
-            <span className="text-lg font-black">{suggestedZones}</span> zonas.
+      {zipSummary.length > 0 && (
+        <section className="mb-6 space-y-3">
+          <h2 className="text-lg font-bold text-foreground">2. Conductores por Código Postal</h2>
+          <p className="text-sm text-muted-foreground">
+            Deja en blanco o en 0 los CP que no repartes hoy — no se les generarán zonas.
           </p>
-        )}
-      </section>
+          <div className="space-y-3">
+            {zipSummary.map(({ zip, count }) => {
+              const value = driversByZip[zip] ?? "";
+              const n = Number(value) || 0;
+              const perDriver = n > 0 ? Math.round((count / n) * 10) / 10 : null;
+              return (
+                <div key={zip} className="rounded-2xl bg-card p-4 shadow-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-lg font-black text-foreground">{zip}</p>
+                      <p className="text-sm text-muted-foreground">{count} paquetes</p>
+                    </div>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      min={0}
+                      value={value}
+                      placeholder="0"
+                      onChange={(e) =>
+                        setDriversByZip((prev) => ({ ...prev, [zip]: e.target.value }))
+                      }
+                      className="w-20 shrink-0 rounded-xl border-2 border-border bg-background px-3 py-3 text-center text-xl font-bold text-foreground outline-none focus:border-accent"
+                    />
+                  </div>
+                  {perDriver !== null && (
+                    <p className="mt-2 text-sm font-semibold text-accent">
+                      ~{perDriver} paquetes por conductor
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       <button
         type="button"
@@ -246,7 +270,7 @@ function SetupPage() {
       </button>
       {!canCalculate && (
         <p className="mt-2 text-center text-sm text-muted-foreground">
-          Sube el ePOD e indica el número de conductores.
+          Sube el ePOD e indica conductores para al menos un Código Postal.
         </p>
       )}
     </main>
@@ -259,35 +283,5 @@ function Stat({ label, value, highlight }: { label: string; value: string; highl
       <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="mt-1 text-2xl font-black text-foreground">{value}</p>
     </div>
-  );
-}
-
-function NumberField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  hint,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  hint?: string;
-}) {
-  return (
-    <label className="block">
-      <span className="text-base font-bold text-foreground">{label}</span>
-      <input
-        type="number"
-        inputMode="numeric"
-        min={1}
-        value={value}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="mt-2 w-full rounded-xl border-2 border-border bg-card px-4 py-4 text-2xl font-bold text-foreground outline-none focus:border-accent"
-      />
-      {hint && <span className="mt-1 block text-sm text-muted-foreground">{hint}</span>}
-    </label>
   );
 }
