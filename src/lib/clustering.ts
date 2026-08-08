@@ -20,8 +20,10 @@ export type Zone = {
   zip: string;
   kind: "home" | "pudo";
   driverType: DriverType;
+  /** True if this zone is one of several produced by auto-splitting a zone that had more than `MAX_AREA_SIZE` packages. */
+  splitBySize: boolean;
   /** True if this zone is one of several produced by auto-splitting an Andarín zone that was too spread out. */
-  autoSplit: boolean;
+  splitByDistance: boolean;
   /** Sequential across the whole day — never resets per CP, and PUDO zones continue after every home zone. */
   driverNumber: number;
   name: string;
@@ -32,7 +34,6 @@ export type Zone = {
 export type ZipGroup = {
   zip: string;
   totalPackages: number;
-  targetSize: number;
   zones: Zone[];
 };
 
@@ -41,18 +42,18 @@ export type MultiZipClusterResult = {
   /** The consolidated PUDO route (all CPs pooled together), or null if not requested. */
   pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
-  /** How many extra zones were created beyond what was configured, from splitting Andarín zones. */
-  extraAndarinZones: number;
+  /** How many extra zones were created beyond what was configured, from auto-splitting (size cap or Andarín distance). */
+  extraSplitZones: number;
 };
 
 /** Synthetic "CP" label used for the consolidated PUDO route. */
 export const PUDO_LABEL = "PUDO";
 
-/** How far a zone may drift above/below the target size before it's rebalanced. */
-export const BALANCE_MARGIN_RATIO = 0.3;
-
 /** An Andarín's route may never have two consecutive stops farther apart than this. */
 export const WALK_MAX_STOP_DISTANCE_KM = 0.8;
+
+/** No single area — home or PUDO, any driver type — should end up with more packages than this. */
+export const MAX_AREA_SIZE = 40;
 
 const EARTH_RADIUS_KM = 6371;
 const MAX_ITERATIONS = 50;
@@ -79,41 +80,30 @@ export function haversineDistance(
 type Centroid = { lat: number; lon: number };
 
 /**
- * Assigns each point to the nearest centroid that still has room under
- * `maxCapacity`, falling back to the next-nearest with room, and so on.
- * Points that are farthest from any centroid (the most "ambiguous" ones)
- * are placed first, since they have the least flexibility later on.
+ * Assigns each point to its single nearest centroid — plain, unconstrained
+ * nearest-centroid assignment (no capacity/balance adjustment).
  */
-function assignWithCapacity(points: ZonePoint[], centroids: Centroid[], maxCapacity: number): number[] {
-  const k = centroids.length;
-  const distances = points.map((point) => centroids.map((centroid) => haversineDistance(point, centroid)));
-
-  const order = points
-    .map((_, i) => i)
-    .sort((a, b) => Math.min(...distances[b]!) - Math.min(...distances[a]!));
-
-  const counts: number[] = new Array(k).fill(0);
-  const assignments: number[] = new Array(points.length).fill(-1);
-
-  for (const i of order) {
-    const centroidOrder = distances[i]!
-      .map((_, c) => c)
-      .sort((a, b) => distances[i]![a]! - distances[i]![b]!);
-
-    const availableCentroid = centroidOrder.find((c) => counts[c]! < maxCapacity);
-    const chosen = availableCentroid ?? centroidOrder[0]!;
-    assignments[i] = chosen;
-    counts[chosen] = counts[chosen]! + 1;
-  }
-
-  return assignments;
+function assignNearest(points: ZonePoint[], centroids: Centroid[]): number[] {
+  return points.map((point) => {
+    let bestIdx = 0;
+    let bestDist = Infinity;
+    centroids.forEach((centroid, idx) => {
+      const dist = haversineDistance(point, centroid);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestIdx = idx;
+      }
+    });
+    return bestIdx;
+  });
 }
 
 /**
- * K-means over lat/lon points using haversine distance, with a capacity
- * constraint applied on every iteration so no zone drifts too far above
- * (or below) the target size while centroids still converge geographically.
- * Returns up to `k` clusters (fewer if there aren't enough points).
+ * Plain K-means over lat/lon points using haversine distance (Lloyd's
+ * algorithm, no capacity/balance constraint) — this is what keeps areas
+ * geographically compact instead of mixing nearby points across zones to
+ * even out package counts. Returns up to `k` clusters (fewer if there
+ * aren't enough points).
  */
 export function kmeans(points: ZonePoint[], k: number, maxIterations = MAX_ITERATIONS): ZonePoint[][] {
   if (points.length === 0 || k <= 0) return [];
@@ -123,11 +113,8 @@ export function kmeans(points: ZonePoint[], k: number, maxIterations = MAX_ITERA
   let centroids: Centroid[] = shuffled.slice(0, clampedK).map((p) => ({ lat: p.lat, lon: p.lon }));
   let assignments: number[] = new Array(points.length).fill(-1);
 
-  const targetSize = points.length / clampedK;
-  const maxCapacity = Math.max(1, Math.ceil(targetSize * (1 + BALANCE_MARGIN_RATIO)));
-
   for (let iter = 0; iter < maxIterations; iter++) {
-    const newAssignments = assignWithCapacity(points, centroids, maxCapacity);
+    const newAssignments = assignNearest(points, centroids);
 
     const changed = newAssignments.some((a, i) => a !== assignments[i]);
     assignments = newAssignments;
@@ -232,9 +219,113 @@ function splitAndarinZone(zone: Zone): Zone[] {
   return segments.map((points, idx) => ({
     ...zone,
     id: `${zone.id}__split${idx}`,
-    autoSplit: true,
+    splitByDistance: true,
     points: points.map((p, i) => ({ ...p, stopNumber: i + 1 })),
   }));
+}
+
+/**
+ * Assigns each point to the nearest centroid that still has room under
+ * `maxCapacity`, falling back to the next-nearest with room, and so on.
+ * Points farthest from any centroid are placed first, since they have the
+ * least flexibility later. Used only by `kmeansCapacitated`, to subdivide a
+ * single already-decided zone — never to mix points across different zones.
+ */
+function assignWithCapacity(points: ZonePoint[], centroids: Centroid[], maxCapacity: number): number[] {
+  const k = centroids.length;
+  const distances = points.map((point) => centroids.map((centroid) => haversineDistance(point, centroid)));
+
+  const order = points
+    .map((_, i) => i)
+    .sort((a, b) => Math.min(...distances[b]!) - Math.min(...distances[a]!));
+
+  const counts: number[] = new Array(k).fill(0);
+  const assignments: number[] = new Array(points.length).fill(-1);
+
+  for (const i of order) {
+    const centroidOrder = distances[i]!
+      .map((_, c) => c)
+      .sort((a, b) => distances[i]![a]! - distances[i]![b]!);
+
+    const availableCentroid = centroidOrder.find((c) => counts[c]! < maxCapacity);
+    const chosen = availableCentroid ?? centroidOrder[0]!;
+    assignments[i] = chosen;
+    counts[chosen] = counts[chosen]! + 1;
+  }
+
+  return assignments;
+}
+
+/**
+ * Same Lloyd's-algorithm loop as `kmeans`, but every iteration's assignment
+ * is hard-capped at `maxCapacity` per cluster. With `k = ceil(n / maxCapacity)`
+ * a valid capped assignment always exists, so this *guarantees* every
+ * resulting cluster has at most `maxCapacity` points — no recursion needed.
+ */
+function kmeansCapacitated(
+  points: ZonePoint[],
+  k: number,
+  maxCapacity: number,
+  maxIterations = MAX_ITERATIONS,
+): ZonePoint[][] {
+  if (points.length === 0 || k <= 0) return [];
+  const clampedK = Math.min(k, points.length);
+
+  const shuffled = [...points].sort(() => Math.random() - 0.5);
+  let centroids: Centroid[] = shuffled.slice(0, clampedK).map((p) => ({ lat: p.lat, lon: p.lon }));
+  let assignments: number[] = new Array(points.length).fill(-1);
+
+  for (let iter = 0; iter < maxIterations; iter++) {
+    const newAssignments = assignWithCapacity(points, centroids, maxCapacity);
+
+    const changed = newAssignments.some((a, i) => a !== assignments[i]);
+    assignments = newAssignments;
+    if (!changed && iter > 0) break;
+
+    const sums = centroids.map(() => ({ lat: 0, lon: 0, count: 0 }));
+    points.forEach((point, i) => {
+      const idx = assignments[i]!;
+      const sum = sums[idx]!;
+      sum.lat += point.lat;
+      sum.lon += point.lon;
+      sum.count += 1;
+    });
+
+    centroids = centroids.map((centroid, idx) => {
+      const sum = sums[idx]!;
+      if (sum.count === 0) return centroid;
+      return { lat: sum.lat / sum.count, lon: sum.lon / sum.count };
+    });
+  }
+
+  const clusters: ZonePoint[][] = Array.from({ length: clampedK }, () => []);
+  points.forEach((point, i) => {
+    const idx = assignments[i]!;
+    clusters[idx]!.push(point);
+  });
+  return clusters;
+}
+
+/**
+ * Re-clusters a zone that ended up with more than `maxSize` packages into
+ * smaller, still-geographically-compact sub-zones — capped in a single pass
+ * (see `kmeansCapacitated`), operating only on this zone's own points, never
+ * touching any other zone. Returns `[zone]` unchanged if already within cap.
+ */
+function splitOversizedZone(zone: Zone, maxSize: number): Zone[] {
+  if (zone.points.length <= maxSize) return [zone];
+
+  const subK = Math.ceil(zone.points.length / maxSize);
+  const subClusters = kmeansCapacitated(zone.points, subK, maxSize);
+
+  return subClusters
+    .filter((points) => points.length > 0)
+    .map((points, idx) => ({
+      ...zone,
+      id: `${zone.id}__cap${idx}`,
+      splitBySize: true,
+      points: orderStopsNearestNeighbor(points),
+    }));
 }
 
 function splitByCoords(rows: EpodRow[]): { located: ZonePoint[]; unlocated: EpodRow[] } {
@@ -263,7 +354,7 @@ function clusterIntoZones(
   idPrefix: string,
   zip: string,
   kind: Zone["kind"],
-): { zones: Zone[]; totalPackages: number; targetSize: number; unlocated: EpodRow[] } {
+): { zones: Zone[]; totalPackages: number; unlocated: EpodRow[] } {
   const { located, unlocated } = splitByCoords(rows);
   const clusters = kmeans(located, driverCount);
 
@@ -272,7 +363,8 @@ function clusterIntoZones(
     zip,
     kind,
     driverType: "repartidor",
-    autoSplit: false,
+    splitBySize: false,
+    splitByDistance: false,
     driverNumber: 0,
     name: "",
     points: orderStopsNearestNeighbor(points),
@@ -283,23 +375,23 @@ function clusterIntoZones(
       zip,
       kind,
       driverType: "repartidor",
-      autoSplit: false,
+      splitBySize: false,
+      splitByDistance: false,
       driverNumber: 0,
       name: "",
       points: [],
     });
   }
 
-  const targetSize = driverCount > 0 ? Math.round(located.length / driverCount) : 0;
-
-  return { zones, totalPackages: rows.length, targetSize, unlocated };
+  return { zones, totalPackages: rows.length, unlocated };
 }
 
 /**
  * Clusters a single CP's home-delivery rows into zones, one per entry in
- * `types` (in slot order). Andarín zones whose route has a gap over
- * `WALK_MAX_STOP_DISTANCE_KM` between consecutive stops get auto-split into
- * extra zones — so the final zone count can exceed `types.length`.
+ * `types` (in slot order). Any zone over `MAX_AREA_SIZE` packages gets
+ * re-clustered into smaller ones, and Andarín zones whose route has a gap
+ * over `WALK_MAX_STOP_DISTANCE_KM` between consecutive stops get further
+ * split — so the final zone count can exceed `types.length`.
  */
 export function buildZonesForZip(
   rows: EpodRow[],
@@ -307,21 +399,16 @@ export function buildZonesForZip(
   types: DriverType[],
 ): { group: ZipGroup; unlocated: EpodRow[]; extraZones: number } {
   const driverCount = types.length;
-  const { zones, totalPackages, targetSize, unlocated } = clusterIntoZones(
-    rows,
-    driverCount,
-    zip,
-    zip,
-    "home",
-  );
+  const { zones, totalPackages, unlocated } = clusterIntoZones(rows, driverCount, zip, zip, "home");
 
   const typedZones: Zone[] = zones.map((zone, i) => ({ ...zone, driverType: types[i] ?? "repartidor" }));
-  const finalZones: Zone[] = typedZones.flatMap((zone) =>
+  const sizeCappedZones: Zone[] = typedZones.flatMap((zone) => splitOversizedZone(zone, MAX_AREA_SIZE));
+  const finalZones: Zone[] = sizeCappedZones.flatMap((zone) =>
     zone.driverType === "andarin" ? splitAndarinZone(zone) : [zone],
   );
 
   return {
-    group: { zip, totalPackages, targetSize, zones: finalZones },
+    group: { zip, totalPackages, zones: finalZones },
     unlocated,
     extraZones: finalZones.length - driverCount,
   };
@@ -329,20 +416,20 @@ export function buildZonesForZip(
 
 /**
  * Clusters PUDO rows pooled from every CP into `driverCount` zones — a
- * consolidated route, never mixed with the per-CP home-delivery zones.
+ * consolidated route, never mixed with the per-CP home-delivery zones. Any
+ * zone over `MAX_AREA_SIZE` packages gets re-clustered into smaller ones.
  */
 export function buildPudoZones(
   rows: EpodRow[],
   driverCount: number,
-): { group: ZipGroup; unlocated: EpodRow[] } {
-  const { zones, totalPackages, targetSize, unlocated } = clusterIntoZones(
-    rows,
-    driverCount,
-    "pudo",
-    PUDO_LABEL,
-    "pudo",
-  );
-  return { group: { zip: PUDO_LABEL, totalPackages, targetSize, zones }, unlocated };
+): { group: ZipGroup; unlocated: EpodRow[]; extraZones: number } {
+  const { zones, totalPackages, unlocated } = clusterIntoZones(rows, driverCount, "pudo", PUDO_LABEL, "pudo");
+  const finalZones: Zone[] = zones.flatMap((zone) => splitOversizedZone(zone, MAX_AREA_SIZE));
+  return {
+    group: { zip: PUDO_LABEL, totalPackages, zones: finalZones },
+    unlocated,
+    extraZones: finalZones.length - driverCount,
+  };
 }
 
 /**
@@ -374,7 +461,7 @@ export function buildZonesByZip(
 
   const groups: ZipGroup[] = [];
   const unlocated: EpodRow[] = [];
-  let extraAndarinZones = 0;
+  let extraSplitZones = 0;
 
   for (const [zip, zipRows] of rowsByZip) {
     const types = driverTypesByZip[zip] ?? [];
@@ -382,16 +469,17 @@ export function buildZonesByZip(
     const { group, unlocated: zipUnlocated, extraZones } = buildZonesForZip(zipRows, zip, types);
     groups.push(group);
     unlocated.push(...zipUnlocated);
-    extraAndarinZones += extraZones;
+    extraSplitZones += extraZones;
   }
 
   groups.sort((a, b) => b.totalPackages - a.totalPackages);
 
   let pudoGroup: ZipGroup | null = null;
   if (pudoDriverCount > 0 && pudoRows.length > 0) {
-    const { group, unlocated: pudoUnlocated } = buildPudoZones(pudoRows, pudoDriverCount);
+    const { group, unlocated: pudoUnlocated, extraZones } = buildPudoZones(pudoRows, pudoDriverCount);
     pudoGroup = group;
     unlocated.push(...pudoUnlocated);
+    extraSplitZones += extraZones;
   }
 
   let globalDriverNumber = 1;
@@ -410,7 +498,7 @@ export function buildZonesByZip(
     }
   }
 
-  return { groups, pudoGroup, unlocated, extraAndarinZones };
+  return { groups, pudoGroup, unlocated, extraSplitZones };
 }
 
 /**

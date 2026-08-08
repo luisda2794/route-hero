@@ -19,12 +19,12 @@ export const Route = createFileRoute("/")({
       {
         name: "description",
         content:
-          "Sube el ePOD del día, indica cuántos conductores quieres por Código Postal y calcula las zonas de reparto.",
+          "Sube el ePOD del día, indica en cuántas áreas quieres dividir cada Código Postal y calcula las zonas de reparto.",
       },
       { property: "og:title", content: "RutaFacil — Configuración del día" },
       {
         property: "og:description",
-        content: "Sube el ePOD y define conductores por Código Postal.",
+        content: "Sube el ePOD y define en cuántas áreas dividir cada Código Postal.",
       },
     ],
   }),
@@ -55,7 +55,7 @@ function SetupPage() {
   const [zipGroups, setZipGroups] = useState<ZipGroup[]>([]);
   const [pudoGroup, setPudoGroup] = useState<ZipGroup | null>(null);
   const [unlocatedRows, setUnlocatedRows] = useState<EpodRow[]>([]);
-  const [extraAndarinZones, setExtraAndarinZones] = useState(0);
+  const [extraSplitZones, setExtraSplitZones] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
 
   async function handleFile(file: File | undefined) {
@@ -82,7 +82,7 @@ function SetupPage() {
   const zipSummary = result ? summarizeByZipAndType(result.inDeliveryRows) : [];
   const totalPudo = zipSummary.reduce((sum, z) => sum + z.pudoCount, 0);
   const nPudoDrivers = pudoEnabled ? Number(pudoDrivers) || 0 : 0;
-  const pudoPerDriver = nPudoDrivers > 0 ? Math.round((totalPudo / nPudoDrivers) * 10) / 10 : null;
+  const pudoPerArea = nPudoDrivers > 0 ? Math.round((totalPudo / nPudoDrivers) * 10) / 10 : null;
   const canCalculate = Boolean(
     result &&
       total > 0 &&
@@ -110,12 +110,12 @@ function SetupPage() {
       groups,
       pudoGroup: computedPudoGroup,
       unlocated,
-      extraAndarinZones: extra,
+      extraSplitZones: extra,
     } = buildZonesByZip(result.inDeliveryRows, driverTypeConfigs, nPudoDrivers);
     setZipGroups(groups);
     setPudoGroup(computedPudoGroup);
     setUnlocatedRows(unlocated);
-    setExtraAndarinZones(extra);
+    setExtraSplitZones(extra);
     setConfirmed(false);
     setStep("zones");
   }
@@ -132,7 +132,7 @@ function SetupPage() {
         groups={zipGroups}
         pudoGroup={pudoGroup}
         unlocated={unlocatedRows}
-        extraAndarinZones={extraAndarinZones}
+        extraSplitZones={extraSplitZones}
         onGroupsChange={setZipGroups}
         onPudoGroupChange={setPudoGroup}
         onBack={() => setStep("setup")}
@@ -251,16 +251,16 @@ function SetupPage() {
 
       {zipSummary.length > 0 && (
         <section className="mb-6 space-y-3">
-          <h2 className="text-lg font-bold text-foreground">2. Conductores por Código Postal</h2>
+          <h2 className="text-lg font-bold text-foreground">2. Áreas por Código Postal</h2>
           <p className="text-sm text-muted-foreground">
-            Deja en blanco o en 0 los CP que no repartes hoy — no se les generarán zonas. Los
-            conductores aplican solo a los paquetes a domicilio.
+            Deja en blanco o en 0 los CP que no repartes hoy — no se les generarán áreas. El
+            número de áreas aplica solo a los paquetes a domicilio.
           </p>
           <div className="space-y-3">
             {zipSummary.map(({ zip, homeCount, pudoCount }) => {
               const value = driversByZip[zip] ?? "";
               const n = Number(value) || 0;
-              const perDriver = n > 0 ? Math.round((homeCount / n) * 10) / 10 : null;
+              const perArea = n > 0 ? Math.round((homeCount / n) * 10) / 10 : null;
               return (
                 <div key={zip} className="rounded-2xl bg-card p-4 shadow-sm">
                   <div className="flex items-center justify-between gap-3">
@@ -273,21 +273,24 @@ function SetupPage() {
                         )}
                       </div>
                     </div>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min={0}
-                      value={value}
-                      placeholder="0"
-                      onChange={(e) =>
-                        setDriversByZip((prev) => ({ ...prev, [zip]: e.target.value }))
-                      }
-                      className="w-20 shrink-0 rounded-xl border-2 border-border bg-background px-3 py-3 text-center text-xl font-bold text-foreground outline-none focus:border-accent"
-                    />
+                    <label className="flex shrink-0 flex-col items-end gap-1">
+                      <span className="text-xs font-semibold text-muted-foreground">¿En cuántas áreas?</span>
+                      <input
+                        type="number"
+                        inputMode="numeric"
+                        min={0}
+                        value={value}
+                        placeholder="0"
+                        onChange={(e) =>
+                          setDriversByZip((prev) => ({ ...prev, [zip]: e.target.value }))
+                        }
+                        className="w-20 rounded-xl border-2 border-border bg-background px-3 py-3 text-center text-xl font-bold text-foreground outline-none focus:border-accent"
+                      />
+                    </label>
                   </div>
-                  {perDriver !== null && (
+                  {perArea !== null && (
                     <p className="mt-2 text-sm font-semibold text-accent">
-                      ~{perDriver} paquetes por conductor
+                      ~{perArea} paquetes por área
                     </p>
                   )}
                   {n > 0 && (
@@ -332,7 +335,7 @@ function SetupPage() {
             <div className="rounded-2xl bg-card p-4 shadow-sm">
               <label className="block">
                 <span className="text-base font-bold text-foreground">
-                  ¿Cuántos conductores para la ruta PUDO?
+                  ¿En cuántas áreas quieres dividir la ruta PUDO?
                 </span>
                 <input
                   type="number"
@@ -344,9 +347,9 @@ function SetupPage() {
                   className="mt-2 w-full rounded-xl border-2 border-border bg-background px-4 py-3 text-xl font-bold text-foreground outline-none focus:border-accent"
                 />
               </label>
-              {pudoPerDriver !== null && (
+              {pudoPerArea !== null && (
                 <p className="mt-2 text-sm font-semibold text-accent">
-                  ~{pudoPerDriver} paquetes por conductor
+                  ~{pudoPerArea} paquetes por área
                 </p>
               )}
             </div>
@@ -364,7 +367,7 @@ function SetupPage() {
       </button>
       {!canCalculate && (
         <p className="mt-2 text-center text-sm text-muted-foreground">
-          Sube el ePOD e indica conductores para al menos un Código Postal.
+          Sube el ePOD e indica áreas para al menos un Código Postal.
         </p>
       )}
     </main>

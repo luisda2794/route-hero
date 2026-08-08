@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import type { EpodRow } from "@/lib/epod";
 import type { Zone, ZipGroup } from "@/lib/clustering";
-import { BALANCE_MARGIN_RATIO, assignZoneColors } from "@/lib/clustering";
+import { MAX_AREA_SIZE, assignZoneColors } from "@/lib/clustering";
 
 const ZonesMap = lazy(() => import("./zones-map"));
 
@@ -23,7 +23,7 @@ export function ZonesPreview({
   groups,
   pudoGroup,
   unlocated,
-  extraAndarinZones,
+  extraSplitZones,
   onGroupsChange,
   onPudoGroupChange,
   onBack,
@@ -33,7 +33,7 @@ export function ZonesPreview({
   groups: ZipGroup[];
   pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
-  extraAndarinZones: number;
+  extraSplitZones: number;
   onGroupsChange: (groups: ZipGroup[]) => void;
   onPudoGroupChange: (group: ZipGroup) => void;
   onBack: () => void;
@@ -75,13 +75,13 @@ export function ZonesPreview({
         </p>
       </header>
 
-      {extraAndarinZones > 0 && (
+      {extraSplitZones > 0 && (
         <div className="mb-6 flex items-start gap-2 rounded-xl bg-warning/15 p-3 text-sm font-semibold text-foreground">
           <SplitSquareVertical className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
           <span>
-            Se {extraAndarinZones === 1 ? "creó 1 ruta adicional" : `crearon ${extraAndarinZones} rutas adicionales`}{" "}
-            de Andarín porque el área era muy dispersa para cubrirla a pie (más de 800 m entre
-            paradas).
+            Se {extraSplitZones === 1 ? "creó 1 área adicional" : `crearon ${extraSplitZones} áreas adicionales`} al
+            dividir automáticamente zonas con más de {MAX_AREA_SIZE} paquetes, o rutas de Andarín
+            demasiado dispersas para ir a pie (más de 800 m entre paradas).
           </span>
         </div>
       )}
@@ -209,24 +209,11 @@ function ZoneGroupCard({
   onToggleExpand: (zoneId: string) => void;
   onRename: (zoneId: string, name: string) => void;
 }) {
-  const lowerMargin = group.targetSize * (1 - BALANCE_MARGIN_RATIO);
-  const upperMargin = group.targetSize * (1 + BALANCE_MARGIN_RATIO);
-
   return (
     <div className="space-y-2">
-      <div className="flex items-baseline justify-between gap-2">
-        <h3 className="text-base font-black text-foreground">{title}</h3>
-        {group.targetSize > 0 && (
-          <span className="text-sm font-semibold text-muted-foreground">
-            Objetivo: ~{group.targetSize} paquetes por zona
-          </span>
-        )}
-      </div>
+      <h3 className="text-base font-black text-foreground">{title}</h3>
       <div className="space-y-2">
         {group.zones.map((zone: Zone) => {
-          const outOfMargin =
-            group.targetSize > 0 &&
-            (zone.points.length < lowerMargin || zone.points.length > upperMargin);
           const expanded = expandedZoneId === zone.id;
           return (
             <div key={zone.id} className="rounded-2xl bg-card p-3 shadow-sm">
@@ -252,11 +239,7 @@ function ZoneGroupCard({
                   onChange={(e) => onRename(zone.id, e.target.value)}
                   className="min-w-0 flex-1 rounded-xl border-2 border-border bg-background px-3 py-2 text-base font-bold text-foreground outline-none focus:border-accent"
                 />
-                <span
-                  className={`shrink-0 rounded-lg px-2.5 py-1 text-sm font-black ${
-                    outOfMargin ? "bg-destructive/15 text-destructive" : "bg-accent/15 text-foreground"
-                  }`}
-                >
+                <span className="shrink-0 rounded-lg bg-accent/15 px-2.5 py-1 text-sm font-black text-foreground">
                   {zone.points.length}
                 </span>
                 <button
@@ -269,10 +252,15 @@ function ZoneGroupCard({
                   <ChevronDown className={`h-5 w-5 transition-transform ${expanded ? "rotate-180" : ""}`} />
                 </button>
               </div>
-              {zone.autoSplit && (
+              {(zone.splitBySize || zone.splitByDistance) && (
                 <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-warning">
                   <SplitSquareVertical className="h-3.5 w-3.5" />
-                  Dividida automáticamente por distancia (Andarín)
+                  Dividida automáticamente
+                  {zone.splitBySize && zone.splitByDistance
+                    ? ` (más de ${MAX_AREA_SIZE} paquetes y más de 800 m entre paradas)`
+                    : zone.splitBySize
+                      ? ` (más de ${MAX_AREA_SIZE} paquetes)`
+                      : " (más de 800 m entre paradas, Andarín)"}
                 </p>
               )}
               {expanded && (
