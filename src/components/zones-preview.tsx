@@ -6,6 +6,7 @@ import {
   ChevronDown,
   Footprints,
   MapPin,
+  Merge,
   PackageCheck,
   PackageX,
   ScanLine,
@@ -15,7 +16,7 @@ import {
 } from "lucide-react";
 import type { EpodRow } from "@/lib/epod";
 import type { Zone, ZipGroup } from "@/lib/clustering";
-import { MAX_AREA_SIZE, assignZoneColors } from "@/lib/clustering";
+import { MAX_AREA_SIZE, MIN_AREA_SIZE, assignZoneColors } from "@/lib/clustering";
 
 const ZonesMap = lazy(() => import("./zones-map"));
 
@@ -24,6 +25,7 @@ export function ZonesPreview({
   pudoGroup,
   unlocated,
   extraSplitZones,
+  mergedZones,
   onGroupsChange,
   onPudoGroupChange,
   onBack,
@@ -34,6 +36,7 @@ export function ZonesPreview({
   pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
   extraSplitZones: number;
+  mergedZones: number;
   onGroupsChange: (groups: ZipGroup[]) => void;
   onPudoGroupChange: (group: ZipGroup) => void;
   onBack: () => void;
@@ -75,14 +78,29 @@ export function ZonesPreview({
         </p>
       </header>
 
-      {extraSplitZones > 0 && (
-        <div className="mb-6 flex items-start gap-2 rounded-xl bg-warning/15 p-3 text-sm font-semibold text-foreground">
-          <SplitSquareVertical className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
-          <span>
-            Se {extraSplitZones === 1 ? "creó 1 área adicional" : `crearon ${extraSplitZones} áreas adicionales`} al
-            dividir automáticamente zonas con más de {MAX_AREA_SIZE} paquetes, o rutas de Andarín
-            demasiado dispersas para ir a pie (más de 800 m entre paradas).
-          </span>
+      {(mergedZones > 0 || extraSplitZones > 0) && (
+        <div className="mb-6 space-y-3">
+          {mergedZones > 0 && (
+            <div className="flex items-start gap-2 rounded-xl bg-warning/15 p-3 text-sm font-semibold text-foreground">
+              <Merge className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+              <span>
+                Se {mergedZones === 1 ? "combinó 1 área" : `combinaron ${mergedZones} áreas`} con menos de{" "}
+                {MIN_AREA_SIZE} paquetes con su vecina más cercana — por eso puede haber menos zonas
+                de las que pediste.
+              </span>
+            </div>
+          )}
+          {extraSplitZones > 0 && (
+            <div className="flex items-start gap-2 rounded-xl bg-warning/15 p-3 text-sm font-semibold text-foreground">
+              <SplitSquareVertical className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
+              <span>
+                Se{" "}
+                {extraSplitZones === 1 ? "creó 1 área adicional" : `crearon ${extraSplitZones} áreas adicionales`}{" "}
+                al dividir automáticamente zonas con más de {MAX_AREA_SIZE} paquetes, o rutas de
+                Andarín demasiado dispersas para ir a pie (más de 800 m entre paradas).
+              </span>
+            </div>
+          )}
         </div>
       )}
 
