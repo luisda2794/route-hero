@@ -8,11 +8,16 @@ export type ZonePoint = {
   lon: number;
 };
 
+/** A zone point with its visiting order within the route (1-based). */
+export type RoutedPoint = ZonePoint & { stopNumber: number };
+
 export type Zone = {
   id: string;
   zip: string;
+  /** Sequential across the whole day — never resets per CP. */
+  driverNumber: number;
   name: string;
-  points: ZonePoint[];
+  points: RoutedPoint[];
 };
 
 /** One CP's worth of zones, clustered independently from every other CP. */
@@ -134,6 +139,53 @@ export function kmeans(points: ZonePoint[], k: number, maxIterations = MAX_ITERA
   return clusters;
 }
 
+/**
+ * Orders a zone's points into a route: starts at the point farthest from the
+ * zone's centroid (the route's natural "far end"), then repeatedly hops to
+ * the nearest unvisited point (nearest-neighbor heuristic).
+ */
+function orderStopsNearestNeighbor(points: ZonePoint[]): RoutedPoint[] {
+  if (points.length === 0) return [];
+
+  const centroid = {
+    lat: points.reduce((sum, p) => sum + p.lat, 0) / points.length,
+    lon: points.reduce((sum, p) => sum + p.lon, 0) / points.length,
+  };
+
+  let startIdx = 0;
+  let maxDist = -Infinity;
+  points.forEach((p, i) => {
+    const d = haversineDistance(p, centroid);
+    if (d > maxDist) {
+      maxDist = d;
+      startIdx = i;
+    }
+  });
+
+  const visited = new Array<boolean>(points.length).fill(false);
+  visited[startIdx] = true;
+  const order: number[] = [startIdx];
+  let currentIdx = startIdx;
+
+  for (let step = 1; step < points.length; step++) {
+    let nearestIdx = -1;
+    let nearestDist = Infinity;
+    for (let i = 0; i < points.length; i++) {
+      if (visited[i]) continue;
+      const d = haversineDistance(points[currentIdx]!, points[i]!);
+      if (d < nearestDist) {
+        nearestDist = d;
+        nearestIdx = i;
+      }
+    }
+    order.push(nearestIdx);
+    visited[nearestIdx] = true;
+    currentIdx = nearestIdx;
+  }
+
+  return order.map((idx, stop) => ({ ...points[idx]!, stopNumber: stop + 1 }));
+}
+
 function splitByCoords(rows: EpodRow[]): { located: ZonePoint[]; unlocated: EpodRow[] } {
   const located: ZonePoint[] = [];
   const unlocated: EpodRow[] = [];
@@ -148,10 +200,12 @@ function splitByCoords(rows: EpodRow[]): { located: ZonePoint[]; unlocated: Epod
 }
 
 /**
- * Clusters a single CP's rows into `driverCount` zones. Always returns
- * `driverCount` zones (named "CP {zip} — Conductor N") even if some end up
- * with very few — or zero — packages, e.g. when a CP has fewer packages
- * than drivers requested.
+ * Clusters a single CP's rows into `driverCount` zones and orders each
+ * zone's stops by nearest-neighbor. Always returns `driverCount` zones even
+ * if some end up with very few — or zero — packages, e.g. when a CP has
+ * fewer packages than drivers requested. `driverNumber`/`name` are left as
+ * placeholders here — `buildZonesByZip` assigns the final, globally unique
+ * driver number and name once every CP's zones are known.
  */
 export function buildZonesForZip(
   rows: EpodRow[],
@@ -164,11 +218,12 @@ export function buildZonesForZip(
   const zones: Zone[] = clusters.map((points, idx) => ({
     id: `${zip}__${idx}`,
     zip,
-    name: `CP ${zip} — Conductor ${idx + 1}`,
-    points,
+    driverNumber: 0,
+    name: "",
+    points: orderStopsNearestNeighbor(points),
   }));
   for (let idx = zones.length; idx < driverCount; idx++) {
-    zones.push({ id: `${zip}__${idx}`, zip, name: `CP ${zip} — Conductor ${idx + 1}`, points: [] });
+    zones.push({ id: `${zip}__${idx}`, zip, driverNumber: 0, name: "", points: [] });
   }
 
   const targetSize = driverCount > 0 ? Math.round(located.length / driverCount) : 0;
@@ -183,6 +238,9 @@ export function buildZonesForZip(
  * Groups in-delivery rows by CP, then clusters each CP independently using
  * its own driver count — packages from one CP never end up in another CP's
  * zone. CPs left blank or at 0 drivers are skipped entirely (no zones).
+ * Driver numbers are assigned once, sequentially, across every CP's zones
+ * (in the same highest-to-lowest-volume order the zones are returned in) —
+ * never resetting per CP.
  */
 export function buildZonesByZip(
   rows: EpodRow[],
@@ -208,6 +266,15 @@ export function buildZonesByZip(
   }
 
   groups.sort((a, b) => b.totalPackages - a.totalPackages);
+
+  let globalDriverNumber = 1;
+  for (const group of groups) {
+    for (const zone of group.zones) {
+      zone.driverNumber = globalDriverNumber;
+      zone.name = `Conductor ${globalDriverNumber} — CP ${group.zip}`;
+      globalDriverNumber += 1;
+    }
+  }
 
   return { groups, unlocated };
 }

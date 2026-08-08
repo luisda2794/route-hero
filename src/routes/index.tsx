@@ -3,6 +3,7 @@ import { useRef, useState } from "react";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
 import { parseEpodFile, summarizeByZip, type EpodParseResult, type EpodRow, type ColumnKey } from "@/lib/epod";
 import { buildZonesByZip, type ZipGroup } from "@/lib/clustering";
+import { buildAssignments, saveAssignments } from "@/lib/assignment";
 import { ZonesPreview } from "@/components/zones-preview";
 
 export const Route = createFileRoute("/")({
@@ -44,7 +45,7 @@ function SetupPage() {
   const [step, setStep] = useState<"setup" | "zones">("setup");
   const [zipGroups, setZipGroups] = useState<ZipGroup[]>([]);
   const [unlocatedRows, setUnlocatedRows] = useState<EpodRow[]>([]);
-  const [savedAssignment, setSavedAssignment] = useState<Record<string, string> | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
 
   async function handleFile(file: File | undefined) {
     if (!file) return;
@@ -82,20 +83,13 @@ function SetupPage() {
     const { groups, unlocated } = buildZonesByZip(result.inDeliveryRows, driverCounts);
     setZipGroups(groups);
     setUnlocatedRows(unlocated);
-    setSavedAssignment(null);
+    setConfirmed(false);
     setStep("zones");
   }
 
   function handleConfirm() {
-    const assignment: Record<string, string> = {};
-    for (const group of zipGroups) {
-      for (const zone of group.zones) {
-        for (const point of zone.points) {
-          assignment[point.waybill] = zone.name;
-        }
-      }
-    }
-    setSavedAssignment(assignment);
+    saveAssignments(buildAssignments(zipGroups));
+    setConfirmed(true);
   }
 
   if (step === "zones" && result) {
@@ -106,7 +100,7 @@ function SetupPage() {
         onGroupsChange={setZipGroups}
         onBack={() => setStep("setup")}
         onConfirm={handleConfirm}
-        confirmed={savedAssignment !== null}
+        confirmed={confirmed}
       />
     );
   }

@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { ArrowLeft, CheckCircle2, MapPin, PackageX, Save } from "lucide-react";
+import { useNavigate } from "@tanstack/react-router";
+import { ArrowLeft, CheckCircle2, ChevronDown, MapPin, PackageX, ScanLine, Save } from "lucide-react";
 import type { EpodRow } from "@/lib/epod";
 import type { ZipGroup } from "@/lib/clustering";
 import { BALANCE_MARGIN_RATIO, assignZoneColors } from "@/lib/clustering";
@@ -21,8 +22,11 @@ export function ZonesPreview({
   onConfirm: () => void;
   confirmed: boolean;
 }) {
+  const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
+
+  const [expandedZoneId, setExpandedZoneId] = useState<string | null>(null);
 
   const zoneColors = useMemo(() => assignZoneColors(groups), [groups]);
   const allZones = useMemo(() => groups.flatMap((g) => g.zones), [groups]);
@@ -65,31 +69,53 @@ export function ZonesPreview({
                   const outOfMargin =
                     group.targetSize > 0 &&
                     (zone.points.length < lowerMargin || zone.points.length > upperMargin);
+                  const expanded = expandedZoneId === zone.id;
                   return (
-                    <div
-                      key={zone.id}
-                      className="flex items-center gap-3 rounded-2xl bg-card p-3 shadow-sm"
-                    >
-                      <span
-                        className="h-4 w-4 shrink-0 rounded-full"
-                        style={{ backgroundColor: zoneColors[zone.id] ?? "#999999" }}
-                        aria-hidden
-                      />
-                      <input
-                        type="text"
-                        value={zone.name}
-                        onChange={(e) => renameZone(group.zip, zone.id, e.target.value)}
-                        className="min-w-0 flex-1 rounded-xl border-2 border-border bg-background px-3 py-2 text-base font-bold text-foreground outline-none focus:border-accent"
-                      />
-                      <span
-                        className={`shrink-0 rounded-lg px-2.5 py-1 text-sm font-black ${
-                          outOfMargin
-                            ? "bg-destructive/15 text-destructive"
-                            : "bg-accent/15 text-foreground"
-                        }`}
-                      >
-                        {zone.points.length}
-                      </span>
+                    <div key={zone.id} className="rounded-2xl bg-card p-3 shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <span
+                          className="h-4 w-4 shrink-0 rounded-full"
+                          style={{ backgroundColor: zoneColors[zone.id] ?? "#999999" }}
+                          aria-hidden
+                        />
+                        <input
+                          type="text"
+                          value={zone.name}
+                          onChange={(e) => renameZone(group.zip, zone.id, e.target.value)}
+                          className="min-w-0 flex-1 rounded-xl border-2 border-border bg-background px-3 py-2 text-base font-bold text-foreground outline-none focus:border-accent"
+                        />
+                        <span
+                          className={`shrink-0 rounded-lg px-2.5 py-1 text-sm font-black ${
+                            outOfMargin
+                              ? "bg-destructive/15 text-destructive"
+                              : "bg-accent/15 text-foreground"
+                          }`}
+                        >
+                          {zone.points.length}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setExpandedZoneId(expanded ? null : zone.id)}
+                          disabled={zone.points.length === 0}
+                          aria-label="Ver orden de paradas"
+                          className="shrink-0 rounded-lg p-1.5 text-muted-foreground disabled:opacity-30"
+                        >
+                          <ChevronDown className={`h-5 w-5 transition-transform ${expanded ? "rotate-180" : ""}`} />
+                        </button>
+                      </div>
+                      {expanded && (
+                        <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-xl bg-background p-2">
+                          {zone.points.map((p) => (
+                            <div key={p.waybill} className="flex items-center gap-2 text-sm">
+                              <span className="w-6 shrink-0 text-right font-black text-accent">
+                                {p.stopNumber}
+                              </span>
+                              <span className="truncate font-semibold text-foreground">{p.waybill}</span>
+                              <span className="truncate text-muted-foreground">{p.address || "—"}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -152,6 +178,16 @@ export function ZonesPreview({
             </>
           )}
         </button>
+        {confirmed && (
+          <button
+            type="button"
+            onClick={() => void navigate({ to: "/escanear" })}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-success px-6 py-5 text-xl font-black uppercase tracking-wide text-success-foreground"
+          >
+            <ScanLine className="h-6 w-6" />
+            Ir a escanear
+          </button>
+        )}
         <button
           type="button"
           onClick={onBack}
