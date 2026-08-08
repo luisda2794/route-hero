@@ -17,7 +17,12 @@ export type Zone = {
 export type ClusterResult = {
   zones: Zone[];
   unlocated: EpodRow[];
+  /** Target packages per zone (located packages ÷ zones actually created). */
+  targetSize: number;
 };
+
+/** How far a zone may drift above/below the target size before it's rebalanced. */
+export const BALANCE_MARGIN_RATIO = 0.3;
 
 /** Distinct, high-contrast colors — enough for up to 12 driver zones. */
 export const ZONE_COLORS = [
@@ -60,7 +65,40 @@ export function haversineDistance(
 type Centroid = { lat: number; lon: number };
 
 /**
- * Simple K-means over lat/lon points using haversine distance.
+ * Assigns each point to the nearest centroid that still has room under
+ * `maxCapacity`, falling back to the next-nearest with room, and so on.
+ * Points that are farthest from any centroid (the most "ambiguous" ones)
+ * are placed first, since they have the least flexibility later on.
+ */
+function assignWithCapacity(points: ZonePoint[], centroids: Centroid[], maxCapacity: number): number[] {
+  const k = centroids.length;
+  const distances = points.map((point) => centroids.map((centroid) => haversineDistance(point, centroid)));
+
+  const order = points
+    .map((_, i) => i)
+    .sort((a, b) => Math.min(...distances[b]!) - Math.min(...distances[a]!));
+
+  const counts: number[] = new Array(k).fill(0);
+  const assignments: number[] = new Array(points.length).fill(-1);
+
+  for (const i of order) {
+    const centroidOrder = distances[i]!
+      .map((_, c) => c)
+      .sort((a, b) => distances[i]![a]! - distances[i]![b]!);
+
+    const availableCentroid = centroidOrder.find((c) => counts[c]! < maxCapacity);
+    const chosen = availableCentroid ?? centroidOrder[0]!;
+    assignments[i] = chosen;
+    counts[chosen] = counts[chosen]! + 1;
+  }
+
+  return assignments;
+}
+
+/**
+ * K-means over lat/lon points using haversine distance, with a capacity
+ * constraint applied on every iteration so no zone drifts too far above
+ * (or below) the target size while centroids still converge geographically.
  * Returns up to `k` clusters (fewer if there aren't enough points).
  */
 export function kmeans(points: ZonePoint[], k: number, maxIterations = MAX_ITERATIONS): ZonePoint[][] {
@@ -71,19 +109,11 @@ export function kmeans(points: ZonePoint[], k: number, maxIterations = MAX_ITERA
   let centroids: Centroid[] = shuffled.slice(0, clampedK).map((p) => ({ lat: p.lat, lon: p.lon }));
   let assignments: number[] = new Array(points.length).fill(-1);
 
+  const targetSize = points.length / clampedK;
+  const maxCapacity = Math.max(1, Math.ceil(targetSize * (1 + BALANCE_MARGIN_RATIO)));
+
   for (let iter = 0; iter < maxIterations; iter++) {
-    const newAssignments = points.map((point) => {
-      let bestIdx = 0;
-      let bestDist = Infinity;
-      centroids.forEach((centroid, idx) => {
-        const dist = haversineDistance(point, centroid);
-        if (dist < bestDist) {
-          bestDist = dist;
-          bestIdx = idx;
-        }
-      });
-      return bestIdx;
-    });
+    const newAssignments = assignWithCapacity(points, centroids, maxCapacity);
 
     const changed = newAssignments.some((a, i) => a !== assignments[i]);
     assignments = newAssignments;
@@ -136,5 +166,7 @@ export function buildZones(rows: EpodRow[], driverCount: number): ClusterResult 
     points,
   }));
 
-  return { zones, unlocated };
+  const targetSize = zones.length ? Math.round(located.length / zones.length) : 0;
+
+  return { zones, unlocated, targetSize };
 }

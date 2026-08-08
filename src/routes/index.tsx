@@ -44,6 +44,7 @@ function SetupPage() {
   const [perDriver, setPerDriver] = useState("");
   const [step, setStep] = useState<"setup" | "zones">("setup");
   const [zones, setZones] = useState<Zone[]>([]);
+  const [targetSize, setTargetSize] = useState(0);
   const [savedAssignment, setSavedAssignment] = useState<Record<string, string> | null>(null);
 
   async function handleFile(file: File | undefined) {
@@ -74,8 +75,9 @@ function SetupPage() {
 
   function handleCalculate() {
     if (!result || nDrivers <= 0) return;
-    const { zones: computed } = buildZones(result.inDeliveryRows, nDrivers);
+    const { zones: computed, targetSize: target } = buildZones(result.inDeliveryRows, nDrivers);
     setZones(computed);
+    setTargetSize(target);
     setSavedAssignment(null);
     setStep("zones");
   }
@@ -94,6 +96,7 @@ function SetupPage() {
     return (
       <ZonesPreview
         zones={zones}
+        targetSize={targetSize}
         unlocated={result.inDeliveryRows.filter((r) => r.lat === null || r.lon === null)}
         onZonesChange={setZones}
         onBack={() => setStep("setup")}

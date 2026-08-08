@@ -2,12 +2,13 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import { ArrowLeft, CheckCircle2, MapPin, PackageX, Save } from "lucide-react";
 import type { EpodRow } from "@/lib/epod";
 import type { Zone } from "@/lib/clustering";
-import { ZONE_COLORS } from "@/lib/clustering";
+import { BALANCE_MARGIN_RATIO, ZONE_COLORS } from "@/lib/clustering";
 
 const ZonesMap = lazy(() => import("./zones-map"));
 
 export function ZonesPreview({
   zones,
+  targetSize,
   unlocated,
   onZonesChange,
   onBack,
@@ -15,6 +16,7 @@ export function ZonesPreview({
   confirmed,
 }: {
   zones: Zone[];
+  targetSize: number;
   unlocated: EpodRow[];
   onZonesChange: (zones: Zone[]) => void;
   onBack: () => void;
@@ -24,8 +26,8 @@ export function ZonesPreview({
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const totalLocated = zones.reduce((sum, z) => sum + z.points.length, 0);
-  const avgPerZone = zones.length ? totalLocated / zones.length : 0;
+  const lowerMargin = targetSize * (1 - BALANCE_MARGIN_RATIO);
+  const upperMargin = targetSize * (1 + BALANCE_MARGIN_RATIO);
 
   function renameZone(id: number, name: string) {
     onZonesChange(zones.map((z) => (z.id === id ? { ...z, name } : z)));
@@ -42,10 +44,18 @@ export function ZonesPreview({
       </header>
 
       <section className="mb-6 space-y-3">
-        <h2 className="text-lg font-bold text-foreground">Zonas ({zones.length})</h2>
+        <div className="flex items-baseline justify-between gap-2">
+          <h2 className="text-lg font-bold text-foreground">Zonas ({zones.length})</h2>
+          {targetSize > 0 && (
+            <span className="text-sm font-semibold text-muted-foreground">
+              Objetivo: ~{targetSize} paquetes por zona
+            </span>
+          )}
+        </div>
         {zones.map((zone, idx) => {
           const color = ZONE_COLORS[idx % ZONE_COLORS.length]!;
-          const isSmall = avgPerZone > 0 && zone.points.length < avgPerZone * 0.4;
+          const outOfMargin =
+            targetSize > 0 && (zone.points.length < lowerMargin || zone.points.length > upperMargin);
           return (
             <div
               key={zone.id}
@@ -64,7 +74,7 @@ export function ZonesPreview({
               />
               <span
                 className={`shrink-0 rounded-lg px-2.5 py-1 text-sm font-black ${
-                  isSmall ? "bg-destructive/15 text-destructive" : "bg-accent/15 text-foreground"
+                  outOfMargin ? "bg-destructive/15 text-destructive" : "bg-accent/15 text-foreground"
                 }`}
               >
                 {zone.points.length}
