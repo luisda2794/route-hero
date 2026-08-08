@@ -233,6 +233,11 @@ function ScanPage() {
             <>
               <p className="text-2xl font-bold text-success-foreground/80">Conductor</p>
               <p className="text-8xl font-black text-success-foreground">{result.assignment.driverNumber}</p>
+              {result.assignment.isPudo && (
+                <span className="rounded-full bg-success-foreground/20 px-4 py-1 text-lg font-black uppercase tracking-wide text-success-foreground">
+                  Ruta PUDO
+                </span>
+              )}
               <p className="mt-4 text-3xl font-black text-success-foreground">
                 Parada {result.assignment.stopNumber} de {result.assignment.totalStops}
               </p>
@@ -247,6 +252,7 @@ function ScanPage() {
               <p className="mt-2 text-2xl font-bold text-warning-foreground">Ya escaneado antes</p>
               <p className="mt-2 text-4xl font-black text-warning-foreground">
                 Parada {result.assignment.stopNumber}, Conductor {result.assignment.driverNumber}
+                {result.assignment.isPudo ? " (Ruta PUDO)" : ""}
               </p>
             </>
           )}

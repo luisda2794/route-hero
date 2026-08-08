@@ -7,6 +7,7 @@ export type WaybillAssignment = {
   address: string;
   stopNumber: number;
   totalStops: number;
+  isPudo: boolean;
 };
 
 export type SavedAssignments = {
@@ -34,10 +35,13 @@ export function buildAssignments(groups: ZipGroup[]): SavedAssignments {
         byWaybill[point.waybill] = {
           waybill: point.waybill,
           driverNumber: zone.driverNumber,
-          zip: zone.zip,
+          // The package's own CP — for a PUDO zone, `zone.zip` is just the
+          // synthetic "PUDO" label, since its points span every CP.
+          zip: point.zip,
           address: point.address,
           stopNumber: point.stopNumber,
           totalStops: zone.points.length,
+          isPudo: zone.kind === "pudo",
         };
       }
     }

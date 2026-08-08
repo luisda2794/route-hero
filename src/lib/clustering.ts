@@ -1,4 +1,4 @@
-import { NO_ZIP_LABEL, type EpodRow } from "./epod";
+import { NO_ZIP_LABEL, isPudoDelivery, type EpodRow } from "./epod";
 
 export type ZonePoint = {
   waybill: string;
@@ -13,14 +13,16 @@ export type RoutedPoint = ZonePoint & { stopNumber: number };
 
 export type Zone = {
   id: string;
+  /** Real CP for a home zone; the constant `PUDO_LABEL` for a PUDO zone (its packages span every CP). */
   zip: string;
-  /** Sequential across the whole day — never resets per CP. */
+  kind: "home" | "pudo";
+  /** Sequential across the whole day — never resets per CP, and PUDO zones continue after every home zone. */
   driverNumber: number;
   name: string;
   points: RoutedPoint[];
 };
 
-/** One CP's worth of zones, clustered independently from every other CP. */
+/** One CP's worth of home-delivery zones, or the single consolidated PUDO route. */
 export type ZipGroup = {
   zip: string;
   totalPackages: number;
@@ -30,8 +32,13 @@ export type ZipGroup = {
 
 export type MultiZipClusterResult = {
   groups: ZipGroup[];
+  /** The consolidated PUDO route (all CPs pooled together), or null if not requested. */
+  pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
 };
+
+/** Synthetic "CP" label used for the consolidated PUDO route. */
+export const PUDO_LABEL = "PUDO";
 
 /** How far a zone may drift above/below the target size before it's rebalanced. */
 export const BALANCE_MARGIN_RATIO = 0.3;
@@ -200,54 +207,94 @@ function splitByCoords(rows: EpodRow[]): { located: ZonePoint[]; unlocated: Epod
 }
 
 /**
- * Clusters a single CP's rows into `driverCount` zones and orders each
- * zone's stops by nearest-neighbor. Always returns `driverCount` zones even
- * if some end up with very few — or zero — packages, e.g. when a CP has
- * fewer packages than drivers requested. `driverNumber`/`name` are left as
- * placeholders here — `buildZonesByZip` assigns the final, globally unique
- * driver number and name once every CP's zones are known.
+ * Clusters `rows` into `driverCount` zones and orders each zone's stops by
+ * nearest-neighbor. Always returns `driverCount` zones even if some end up
+ * with very few — or zero — packages. `driverNumber`/`name` are left as
+ * placeholders — `buildZonesByZip` assigns the final, globally unique driver
+ * number and name once every group's zones are known.
  */
-export function buildZonesForZip(
+function clusterIntoZones(
   rows: EpodRow[],
-  zip: string,
   driverCount: number,
-): { group: ZipGroup; unlocated: EpodRow[] } {
+  idPrefix: string,
+  zip: string,
+  kind: Zone["kind"],
+): { zones: Zone[]; totalPackages: number; targetSize: number; unlocated: EpodRow[] } {
   const { located, unlocated } = splitByCoords(rows);
   const clusters = kmeans(located, driverCount);
 
   const zones: Zone[] = clusters.map((points, idx) => ({
-    id: `${zip}__${idx}`,
+    id: `${idPrefix}__${idx}`,
     zip,
+    kind,
     driverNumber: 0,
     name: "",
     points: orderStopsNearestNeighbor(points),
   }));
   for (let idx = zones.length; idx < driverCount; idx++) {
-    zones.push({ id: `${zip}__${idx}`, zip, driverNumber: 0, name: "", points: [] });
+    zones.push({ id: `${idPrefix}__${idx}`, zip, kind, driverNumber: 0, name: "", points: [] });
   }
 
   const targetSize = driverCount > 0 ? Math.round(located.length / driverCount) : 0;
 
-  return {
-    group: { zip, totalPackages: rows.length, targetSize, zones },
-    unlocated,
-  };
+  return { zones, totalPackages: rows.length, targetSize, unlocated };
+}
+
+/** Clusters a single CP's home-delivery rows into `driverCount` zones. */
+export function buildZonesForZip(
+  rows: EpodRow[],
+  zip: string,
+  driverCount: number,
+): { group: ZipGroup; unlocated: EpodRow[] } {
+  const { zones, totalPackages, targetSize, unlocated } = clusterIntoZones(
+    rows,
+    driverCount,
+    zip,
+    zip,
+    "home",
+  );
+  return { group: { zip, totalPackages, targetSize, zones }, unlocated };
 }
 
 /**
- * Groups in-delivery rows by CP, then clusters each CP independently using
- * its own driver count — packages from one CP never end up in another CP's
- * zone. CPs left blank or at 0 drivers are skipped entirely (no zones).
- * Driver numbers are assigned once, sequentially, across every CP's zones
- * (in the same highest-to-lowest-volume order the zones are returned in) —
- * never resetting per CP.
+ * Clusters PUDO rows pooled from every CP into `driverCount` zones — a
+ * consolidated route, never mixed with the per-CP home-delivery zones.
+ */
+export function buildPudoZones(
+  rows: EpodRow[],
+  driverCount: number,
+): { group: ZipGroup; unlocated: EpodRow[] } {
+  const { zones, totalPackages, targetSize, unlocated } = clusterIntoZones(
+    rows,
+    driverCount,
+    "pudo",
+    PUDO_LABEL,
+    "pudo",
+  );
+  return { group: { zip: PUDO_LABEL, totalPackages, targetSize, zones }, unlocated };
+}
+
+/**
+ * Groups in-delivery rows by CP, then clusters each CP's home deliveries
+ * independently using its own driver count — packages from one CP never end
+ * up in another CP's zone. CPs left blank or at 0 drivers are skipped
+ * entirely (no zones). PUDO rows from every CP are pooled and, if
+ * `pudoDriverCount` is set, clustered into their own consolidated route.
+ *
+ * Driver numbers are assigned once, sequentially: every home zone first (in
+ * highest-to-lowest CP volume order), then every PUDO zone — continuing the
+ * same count rather than resetting.
  */
 export function buildZonesByZip(
   rows: EpodRow[],
   driverCountByZip: Record<string, number>,
+  pudoDriverCount = 0,
 ): MultiZipClusterResult {
+  const homeRows = rows.filter((r) => !isPudoDelivery(r.deliveryType));
+  const pudoRows = rows.filter((r) => isPudoDelivery(r.deliveryType));
+
   const rowsByZip = new Map<string, EpodRow[]>();
-  for (const row of rows) {
+  for (const row of homeRows) {
     const key = row.zip || NO_ZIP_LABEL;
     const bucket = rowsByZip.get(key);
     if (bucket) bucket.push(row);
@@ -267,6 +314,13 @@ export function buildZonesByZip(
 
   groups.sort((a, b) => b.totalPackages - a.totalPackages);
 
+  let pudoGroup: ZipGroup | null = null;
+  if (pudoDriverCount > 0 && pudoRows.length > 0) {
+    const { group, unlocated: pudoUnlocated } = buildPudoZones(pudoRows, pudoDriverCount);
+    pudoGroup = group;
+    unlocated.push(...pudoUnlocated);
+  }
+
   let globalDriverNumber = 1;
   for (const group of groups) {
     for (const zone of group.zones) {
@@ -275,8 +329,15 @@ export function buildZonesByZip(
       globalDriverNumber += 1;
     }
   }
+  if (pudoGroup) {
+    for (const zone of pudoGroup.zones) {
+      zone.driverNumber = globalDriverNumber;
+      zone.name = `Conductor ${globalDriverNumber} — Ruta PUDO`;
+      globalDriverNumber += 1;
+    }
+  }
 
-  return { groups, unlocated };
+  return { groups, pudoGroup, unlocated };
 }
 
 /**

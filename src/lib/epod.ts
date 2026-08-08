@@ -7,7 +7,8 @@ export type ColumnKey =
   | "address"
   | "lat"
   | "lon"
-  | "taskDate";
+  | "taskDate"
+  | "deliveryType";
 
 /** Bilingual (ES/EN) header aliases for the Cainiao ePOD export. */
 export const COLUMN_ALIASES: Record<ColumnKey, string[]> = {
@@ -42,6 +43,7 @@ export const COLUMN_ALIASES: Record<ColumnKey, string[]> = {
     "lon",
   ],
   taskDate: ["fecha de la tarea", "fecha tarea", "task date", "fecha"],
+  deliveryType: ["tipo de entrega", "delivery type", "tipo entrega"],
 };
 
 export const REQUIRED_COLUMNS: ColumnKey[] = ["waybill", "taskStatus", "taskDate"];
@@ -86,6 +88,8 @@ export type EpodRow = {
   lat: number | null;
   lon: number | null;
   taskDate: string;
+  /** Raw "Tipo de Entrega" value, e.g. "TO_DOOR" or "PUDO". Empty if the column wasn't found. */
+  deliveryType: string;
 };
 
 export type EpodParseResult = {
@@ -106,18 +110,21 @@ export type EpodParseResult = {
 /** Bucket label for rows with no CP detected. */
 export const NO_ZIP_LABEL = "(sin CP)";
 
-export type ZipSummary = { zip: string; count: number };
+export type ZipTypeSummary = { zip: string; homeCount: number; pudoCount: number };
 
-/** Packages per CP, sorted from highest to lowest volume. */
-export function summarizeByZip(rows: EpodRow[]): ZipSummary[] {
-  const counts = new Map<string, number>();
+/** Packages per CP split by delivery type, sorted from highest to lowest total volume. */
+export function summarizeByZipAndType(rows: EpodRow[]): ZipTypeSummary[] {
+  const counts = new Map<string, { homeCount: number; pudoCount: number }>();
   for (const row of rows) {
     const key = row.zip || NO_ZIP_LABEL;
-    counts.set(key, (counts.get(key) ?? 0) + 1);
+    const entry = counts.get(key) ?? { homeCount: 0, pudoCount: 0 };
+    if (isPudoDelivery(row.deliveryType)) entry.pudoCount += 1;
+    else entry.homeCount += 1;
+    counts.set(key, entry);
   }
   return [...counts.entries()]
-    .map(([zip, count]) => ({ zip, count }))
-    .sort((a, b) => b.count - a.count);
+    .map(([zip, { homeCount, pudoCount }]) => ({ zip, homeCount, pudoCount }))
+    .sort((a, b) => b.homeCount + b.pudoCount - (a.homeCount + a.pudoCount));
 }
 
 const DELIVERY_STATUSES = ["driver_received", "driver_received_incidencias"];
@@ -125,6 +132,13 @@ const DELIVERY_STATUSES = ["driver_received", "driver_received_incidencias"];
 export function isInDeliveryStatus(status: string) {
   const norm = normalizeHeader(status).replace(/ /g, "_");
   return DELIVERY_STATUSES.some((s) => norm === s || norm.startsWith("driver_received"));
+}
+
+/** PUDO/locker deliveries — everything else (e.g. "TO_DOOR") is a regular home delivery. */
+const PUDO_DELIVERY_TYPES = ["pudo"];
+
+export function isPudoDelivery(deliveryType: string): boolean {
+  return PUDO_DELIVERY_TYPES.includes(normalizeHeader(deliveryType));
 }
 
 function toNumber(value: unknown): number | null {
@@ -172,6 +186,7 @@ export async function parseEpodFile(file: File): Promise<EpodParseResult> {
     lat: columns.lat ? toNumber(r[columns.lat]) : null,
     lon: columns.lon ? toNumber(r[columns.lon]) : null,
     taskDate: columns.taskDate ? toDateKey(r[columns.taskDate]) : "",
+    deliveryType: String(columns.deliveryType ? (r[columns.deliveryType] ?? "") : "").trim(),
   })).filter((r) => r.waybill);
 
   const dates = rows.map((r) => r.taskDate).filter(Boolean).sort();

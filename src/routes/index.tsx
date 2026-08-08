@@ -1,7 +1,13 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2 } from "lucide-react";
-import { parseEpodFile, summarizeByZip, type EpodParseResult, type EpodRow, type ColumnKey } from "@/lib/epod";
+import {
+  parseEpodFile,
+  summarizeByZipAndType,
+  type EpodParseResult,
+  type EpodRow,
+  type ColumnKey,
+} from "@/lib/epod";
 import { buildZonesByZip, type ZipGroup } from "@/lib/clustering";
 import { buildAssignments, saveAssignments } from "@/lib/assignment";
 import { ZonesPreview } from "@/components/zones-preview";
@@ -42,8 +48,11 @@ function SetupPage() {
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<EpodParseResult | null>(null);
   const [driversByZip, setDriversByZip] = useState<Record<string, string>>({});
+  const [pudoEnabled, setPudoEnabled] = useState(false);
+  const [pudoDrivers, setPudoDrivers] = useState("");
   const [step, setStep] = useState<"setup" | "zones">("setup");
   const [zipGroups, setZipGroups] = useState<ZipGroup[]>([]);
+  const [pudoGroup, setPudoGroup] = useState<ZipGroup | null>(null);
   const [unlocatedRows, setUnlocatedRows] = useState<EpodRow[]>([]);
   const [confirmed, setConfirmed] = useState(false);
 
@@ -68,9 +77,14 @@ function SetupPage() {
   }
 
   const total = result?.inDeliveryToday ?? 0;
-  const zipSummary = result ? summarizeByZip(result.inDeliveryRows) : [];
+  const zipSummary = result ? summarizeByZipAndType(result.inDeliveryRows) : [];
+  const totalPudo = zipSummary.reduce((sum, z) => sum + z.pudoCount, 0);
+  const nPudoDrivers = pudoEnabled ? Number(pudoDrivers) || 0 : 0;
+  const pudoPerDriver = nPudoDrivers > 0 ? Math.round((totalPudo / nPudoDrivers) * 10) / 10 : null;
   const canCalculate = Boolean(
-    result && total > 0 && Object.values(driversByZip).some((v) => Number(v) > 0),
+    result &&
+      total > 0 &&
+      (Object.values(driversByZip).some((v) => Number(v) > 0) || nPudoDrivers > 0),
   );
 
   function handleCalculate() {
@@ -80,15 +94,21 @@ function SetupPage() {
       const n = Number(value);
       if (n > 0) driverCounts[zip] = n;
     }
-    const { groups, unlocated } = buildZonesByZip(result.inDeliveryRows, driverCounts);
+    const { groups, pudoGroup: computedPudoGroup, unlocated } = buildZonesByZip(
+      result.inDeliveryRows,
+      driverCounts,
+      nPudoDrivers,
+    );
     setZipGroups(groups);
+    setPudoGroup(computedPudoGroup);
     setUnlocatedRows(unlocated);
     setConfirmed(false);
     setStep("zones");
   }
 
   function handleConfirm() {
-    saveAssignments(buildAssignments(zipGroups));
+    const allGroups = pudoGroup ? [...zipGroups, pudoGroup] : zipGroups;
+    saveAssignments(buildAssignments(allGroups));
     setConfirmed(true);
   }
 
@@ -96,8 +116,10 @@ function SetupPage() {
     return (
       <ZonesPreview
         groups={zipGroups}
+        pudoGroup={pudoGroup}
         unlocated={unlocatedRows}
         onGroupsChange={setZipGroups}
+        onPudoGroupChange={setPudoGroup}
         onBack={() => setStep("setup")}
         onConfirm={handleConfirm}
         confirmed={confirmed}
@@ -216,19 +238,25 @@ function SetupPage() {
         <section className="mb-6 space-y-3">
           <h2 className="text-lg font-bold text-foreground">2. Conductores por Código Postal</h2>
           <p className="text-sm text-muted-foreground">
-            Deja en blanco o en 0 los CP que no repartes hoy — no se les generarán zonas.
+            Deja en blanco o en 0 los CP que no repartes hoy — no se les generarán zonas. Los
+            conductores aplican solo a los paquetes a domicilio.
           </p>
           <div className="space-y-3">
-            {zipSummary.map(({ zip, count }) => {
+            {zipSummary.map(({ zip, homeCount, pudoCount }) => {
               const value = driversByZip[zip] ?? "";
               const n = Number(value) || 0;
-              const perDriver = n > 0 ? Math.round((count / n) * 10) / 10 : null;
+              const perDriver = n > 0 ? Math.round((homeCount / n) * 10) / 10 : null;
               return (
                 <div key={zip} className="rounded-2xl bg-card p-4 shadow-sm">
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-lg font-black text-foreground">{zip}</p>
-                      <p className="text-sm text-muted-foreground">{count} paquetes</p>
+                      <div className="mt-1 flex flex-wrap gap-x-3 text-sm text-muted-foreground">
+                        <span>{homeCount} a domicilio</span>
+                        {pudoCount > 0 && (
+                          <span className="font-semibold text-accent">{pudoCount} PUDO</span>
+                        )}
+                      </div>
                     </div>
                     <input
                       type="number"
@@ -251,6 +279,45 @@ function SetupPage() {
               );
             })}
           </div>
+        </section>
+      )}
+
+      {totalPudo > 0 && (
+        <section className="mb-6 space-y-3">
+          <label className="flex items-center gap-3 rounded-2xl bg-card p-4 shadow-sm">
+            <input
+              type="checkbox"
+              checked={pudoEnabled}
+              onChange={(e) => setPudoEnabled(e.target.checked)}
+              className="h-5 w-5 shrink-0 accent-accent"
+            />
+            <span className="text-base font-bold text-foreground">
+              Incluir ruta PUDO ({totalPudo} paquetes)
+            </span>
+          </label>
+          {pudoEnabled && (
+            <div className="rounded-2xl bg-card p-4 shadow-sm">
+              <label className="block">
+                <span className="text-base font-bold text-foreground">
+                  ¿Cuántos conductores para la ruta PUDO?
+                </span>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={1}
+                  value={pudoDrivers}
+                  placeholder="Ej. 1"
+                  onChange={(e) => setPudoDrivers(e.target.value)}
+                  className="mt-2 w-full rounded-xl border-2 border-border bg-background px-4 py-3 text-xl font-bold text-foreground outline-none focus:border-accent"
+                />
+              </label>
+              {pudoPerDriver !== null && (
+                <p className="mt-2 text-sm font-semibold text-accent">
+                  ~{pudoPerDriver} paquetes por conductor
+                </p>
+              )}
+            </div>
+          )}
         </section>
       )}
 
