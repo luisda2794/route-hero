@@ -14,12 +14,11 @@ import {
   PackageX,
   ScanLine,
   Save,
-  SplitSquareVertical,
   Truck,
 } from "lucide-react";
 import type { EpodRow } from "@/lib/epod";
 import type { Zone, ZipGroup } from "@/lib/clustering";
-import { MAX_AREA_SIZE, assignZoneColors } from "@/lib/clustering";
+import { assignZoneColors } from "@/lib/clustering";
 
 const ZonesMap = lazy(() => import("./zones-map"));
 
@@ -27,7 +26,6 @@ export function ZonesPreview({
   groups,
   pudoGroup,
   unlocated,
-  extraSplitZones,
   onGroupsChange,
   onPudoGroupChange,
   onBack,
@@ -38,7 +36,6 @@ export function ZonesPreview({
   groups: ZipGroup[];
   pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
-  extraSplitZones: number;
   onGroupsChange: (groups: ZipGroup[]) => void;
   onPudoGroupChange: (group: ZipGroup) => void;
   onBack: () => void;
@@ -80,17 +77,6 @@ export function ZonesPreview({
           Vista previa de zonas. Ajusta los nombres antes de confirmar.
         </p>
       </header>
-
-      {extraSplitZones > 0 && (
-        <div className="mb-6 flex items-start gap-2 rounded-xl bg-warning/15 p-3 text-sm font-semibold text-foreground">
-          <SplitSquareVertical className="mt-0.5 h-5 w-5 shrink-0 text-warning" />
-          <span>
-            Se {extraSplitZones === 1 ? "creó 1 área adicional" : `crearon ${extraSplitZones} áreas adicionales`}{" "}
-            porque el volumen superaba el máximo de {MAX_AREA_SIZE} paquetes, o una ruta de Andarín
-            quedó demasiado dispersa para ir a pie (más de 800 m entre paradas).
-          </span>
-        </div>
-      )}
 
       <section className="mb-6 space-y-5">
         <h2 className="text-lg font-bold text-foreground">Zonas por Código Postal</h2>
@@ -290,17 +276,6 @@ function ZoneGroupCard({
                   <ChevronDown className={`h-5 w-5 transition-transform ${expanded ? "rotate-180" : ""}`} />
                 </button>
               </div>
-              {(zone.splitBySize || zone.splitByDistance) && (
-                <p className="mt-1.5 flex items-center gap-1 text-xs font-semibold text-warning">
-                  <SplitSquareVertical className="h-3.5 w-3.5 shrink-0" />
-                  Dividida automáticamente
-                  {zone.splitBySize && zone.splitByDistance
-                    ? ` (más de ${MAX_AREA_SIZE} paquetes y más de 800 m entre paradas)`
-                    : zone.splitBySize
-                      ? ` (más de ${MAX_AREA_SIZE} paquetes)`
-                      : " (más de 800 m entre paradas, Andarín)"}
-                </p>
-              )}
               {expanded && (
                 <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-xl bg-background p-2">
                   {zone.points.map((p) => (

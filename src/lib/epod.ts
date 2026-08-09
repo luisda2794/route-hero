@@ -101,9 +101,9 @@ export type EpodParseResult = {
   rows: EpodRow[];
   latestDate: string;
   statusCounts: Record<string, number>;
-  inDeliveryToday: number;
+  totalToRoute: number;
   withoutCoords: number;
-  /** Every row for the detected date, regardless of task status. */
+  /** Every row in the file with a waybill — regardless of date or task status. */
   inDeliveryRows: EpodRow[];
 };
 
@@ -185,16 +185,17 @@ export async function parseEpodFile(file: File): Promise<EpodParseResult> {
   const dates = rows.map((r) => r.taskDate).filter(Boolean).sort();
   const latestDate = dates.length ? (dates[dates.length - 1] ?? "") : "";
 
-  const todayRows = rows.filter((r) => (latestDate ? r.taskDate === latestDate : true));
   const statusCounts: Record<string, number> = {};
-  for (const r of todayRows) {
+  for (const r of rows) {
     const key = r.taskStatus || "(sin estado)";
     statusCounts[key] = (statusCounts[key] ?? 0) + 1;
   }
 
-  // Route every package for the detected date, regardless of task status —
-  // e.g. "Attempt Failure" still needs a driver/area assigned for a retry.
-  const inDelivery = todayRows;
+  // Route every package in the file — regardless of task status (e.g.
+  // "Attempt Failure" still needs a driver/area for a retry) and regardless
+  // of date, since a merged/multi-day export shouldn't silently drop every
+  // date but the most recent one.
+  const inDelivery = rows;
 
   return {
     fileName: file.name,
@@ -205,7 +206,7 @@ export async function parseEpodFile(file: File): Promise<EpodParseResult> {
     rows,
     latestDate,
     statusCounts,
-    inDeliveryToday: inDelivery.length,
+    totalToRoute: inDelivery.length,
     withoutCoords: inDelivery.filter((r) => r.lat === null || r.lon === null).length,
     inDeliveryRows: inDelivery,
   };

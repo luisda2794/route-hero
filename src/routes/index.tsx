@@ -55,7 +55,6 @@ function SetupPage() {
   const [zipGroups, setZipGroups] = useState<ZipGroup[]>([]);
   const [pudoGroup, setPudoGroup] = useState<ZipGroup | null>(null);
   const [unlocatedRows, setUnlocatedRows] = useState<EpodRow[]>([]);
-  const [extraSplitZones, setExtraSplitZones] = useState(0);
   const [confirmed, setConfirmed] = useState(false);
   const [remoteSaveStatus, setRemoteSaveStatus] = useState<"idle" | "saving" | "ok" | "error">("idle");
 
@@ -79,7 +78,7 @@ function SetupPage() {
     }
   }
 
-  const total = result?.inDeliveryToday ?? 0;
+  const total = result?.totalToRoute ?? 0;
   const zipSummary = result ? summarizeByZipAndType(result.inDeliveryRows) : [];
   const totalPudo = zipSummary.reduce((sum, z) => sum + z.pudoCount, 0);
   const nPudoDrivers = pudoEnabled ? Number(pudoDrivers) || 0 : 0;
@@ -107,16 +106,14 @@ function SetupPage() {
       const types = driverTypesByZip[zip] ?? [];
       driverTypeConfigs[zip] = Array.from({ length: n }, (_, i) => types[i] ?? "repartidor");
     }
-    const {
-      groups,
-      pudoGroup: computedPudoGroup,
-      unlocated,
-      extraSplitZones: extra,
-    } = buildZonesByZip(result.inDeliveryRows, driverTypeConfigs, nPudoDrivers);
+    const { groups, pudoGroup: computedPudoGroup, unlocated } = buildZonesByZip(
+      result.inDeliveryRows,
+      driverTypeConfigs,
+      nPudoDrivers,
+    );
     setZipGroups(groups);
     setPudoGroup(computedPudoGroup);
     setUnlocatedRows(unlocated);
-    setExtraSplitZones(extra);
     setConfirmed(false);
     setStep("zones");
   }
@@ -137,7 +134,6 @@ function SetupPage() {
         groups={zipGroups}
         pudoGroup={pudoGroup}
         unlocated={unlocatedRows}
-        extraSplitZones={extraSplitZones}
         onGroupsChange={setZipGroups}
         onPudoGroupChange={setPudoGroup}
         onBack={() => setStep("setup")}
@@ -223,9 +219,9 @@ function SetupPage() {
         {result && (
           <div className="mt-4 space-y-4 rounded-2xl bg-card p-4 shadow-sm">
             <div className="grid grid-cols-2 gap-3">
-              <Stat label="Fecha detectada" value={result.latestDate || "—"} />
+              <Stat label="Fecha más reciente" value={result.latestDate || "—"} />
               <Stat label="Filas en archivo" value={String(result.rows.length)} />
-              <Stat label="A enrutar hoy" value={String(result.inDeliveryToday)} highlight />
+              <Stat label="A enrutar" value={String(result.totalToRoute)} highlight />
               <Stat label="Sin coordenadas" value={String(result.withoutCoords)} />
             </div>
 
@@ -252,7 +248,7 @@ function SetupPage() {
 
             <div>
               <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
-                Estados en la fecha detectada
+                Estados en el archivo
               </p>
               <ul className="space-y-1 text-sm">
                 {Object.entries(result.statusCounts)
