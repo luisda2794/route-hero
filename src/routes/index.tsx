@@ -11,6 +11,7 @@ import {
 import { buildZonesByZip, type DriverType, type ZipGroup } from "@/lib/clustering";
 import { buildAssignments, saveAssignments, saveAssignmentsRemote } from "@/lib/assignment";
 import { ZonesPreview } from "@/components/zones-preview";
+import { AdminNav } from "@/components/admin-nav";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -146,6 +147,8 @@ function SetupPage() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-lg px-4 pb-16 pt-8">
+      <AdminNav />
+
       <Link
         to="/consulta"
         className="mb-6 flex items-center gap-3 rounded-2xl border-2 border-accent bg-accent/10 px-4 py-3.5 text-accent"

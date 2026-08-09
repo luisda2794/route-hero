@@ -134,6 +134,19 @@ export function isPudoDelivery(deliveryType: string): boolean {
   return PUDO_DELIVERY_TYPES.includes(normalizeHeader(deliveryType));
 }
 
+export type TrackingStatus = "delivered" | "failed" | "pending";
+
+const DELIVERED_STATUSES = ["entregado", "delivered"];
+const FAILED_STATUSES = ["attempt failure", "cancelar", "cancel", "cancelled", "canceled"];
+
+/** Everything that isn't a recognized delivered/failed status counts as pending. */
+export function classifyTaskStatus(taskStatus: string): TrackingStatus {
+  const norm = normalizeHeader(taskStatus);
+  if (DELIVERED_STATUSES.includes(norm)) return "delivered";
+  if (FAILED_STATUSES.includes(norm)) return "failed";
+  return "pending";
+}
+
 function toNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const n = typeof value === "number" ? value : Number(String(value).replace(",", "."));

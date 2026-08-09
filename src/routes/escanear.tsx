@@ -11,6 +11,7 @@ import {
   type WaybillAssignment,
 } from "@/lib/assignment";
 import { BarcodeScanner } from "@/components/barcode-scanner";
+import { AdminNav } from "@/components/admin-nav";
 
 export const Route = createFileRoute("/escanear")({
   head: () => ({
@@ -135,6 +136,8 @@ function ScanPage() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-lg px-4 pb-16 pt-8">
+      <AdminNav />
+
       <header className="mb-6">
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Paso 4 de 4</p>
         <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">Escaneo</h1>
