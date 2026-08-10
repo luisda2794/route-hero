@@ -5,7 +5,9 @@ import type { WaybillAssignment } from "@/lib/assignment";
 import {
   assignmentsForBlock,
   getActiveBlockOrMostRecent,
-  updateBlockScanState,
+  markScanned,
+  resetScanState,
+  syncBlocksFromRemote,
   type RoutingBlock,
   type ScanState,
 } from "@/lib/blocks";
@@ -58,6 +60,9 @@ function ScanPage() {
   useEffect(() => {
     setMounted(true);
     setActiveBlock(getActiveBlockOrMostRecent());
+    void syncBlocksFromRemote().then((changed) => {
+      if (changed) setActiveBlock(getActiveBlockOrMostRecent());
+    });
   }, []);
 
   useEffect(() => {
@@ -101,11 +106,8 @@ function ScanPage() {
       playFeedback("warning");
       return;
     }
-    const nextScanState: ScanState = {
-      scanned: { ...scanState.scanned, [waybill]: { scannedAt: new Date().toISOString() } },
-    };
-    updateBlockScanState(activeBlock.id, nextScanState);
-    setActiveBlock({ ...activeBlock, scanState: nextScanState });
+    const nextScanState = markScanned(activeBlock.id, waybill);
+    if (nextScanState) setActiveBlock({ ...activeBlock, scanState: nextScanState });
     setResult({ kind: "found-new", assignment });
     playFeedback("success");
   }
@@ -130,8 +132,7 @@ function ScanPage() {
 
   function handleResetScan() {
     if (!activeBlock) return;
-    const emptyScanState: ScanState = { scanned: {} };
-    updateBlockScanState(activeBlock.id, emptyScanState);
+    const emptyScanState = resetScanState(activeBlock.id);
     setActiveBlock({ ...activeBlock, scanState: emptyScanState });
     setResult(null);
   }

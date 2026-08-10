@@ -58,6 +58,7 @@ function SetupPage() {
   const [pudoGroup, setPudoGroup] = useState<ZipGroup | null>(null);
   const [unlocatedRows, setUnlocatedRows] = useState<EpodRow[]>([]);
   const [confirmed, setConfirmed] = useState(false);
+  const [creatingBlock, setCreatingBlock] = useState(false);
   const [remoteSaveStatus, setRemoteSaveStatus] = useState<"idle" | "saving" | "ok" | "error">("idle");
 
   async function handleFile(file: File | undefined) {
@@ -120,8 +121,10 @@ function SetupPage() {
     setStep("zones");
   }
 
-  function handleConfirm() {
-    createBlock(zipGroups, pudoGroup);
+  async function handleConfirm(name: string) {
+    setCreatingBlock(true);
+    await createBlock(zipGroups, pudoGroup, name);
+    setCreatingBlock(false);
     const assignments = buildAssignments(pudoGroup ? [...zipGroups, pudoGroup] : zipGroups);
     setConfirmed(true);
 
@@ -140,6 +143,7 @@ function SetupPage() {
         onBack={() => setStep("setup")}
         onConfirm={handleConfirm}
         confirmed={confirmed}
+        creating={creatingBlock}
         remoteSaveStatus={remoteSaveStatus}
       />
     );

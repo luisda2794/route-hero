@@ -14,8 +14,8 @@ import type { WaybillAssignment } from "@/lib/assignment";
 import {
   assignmentsForBlock,
   getActiveBlockOrMostRecent,
-  updateBlockDeliveryState,
-  type DeliveryState,
+  markDelivery,
+  syncBlocksFromRemote,
   type RoutingBlock,
 } from "@/lib/blocks";
 import { driverProgressFor, type DriverStop } from "@/lib/driver";
@@ -62,6 +62,9 @@ function ConductorDetailPage() {
   useEffect(() => {
     setMounted(true);
     setActiveBlock(getActiveBlockOrMostRecent());
+    void syncBlocksFromRemote().then((changed) => {
+      if (changed) setActiveBlock(getActiveBlockOrMostRecent());
+    });
   }, []);
 
   // "own" stays on screen until the driver picks Entregado/Fallado; every
@@ -82,13 +85,10 @@ function ConductorDetailPage() {
 
   function markStop(waybill: string, status: "delivered" | "failed") {
     if (!activeBlock) return;
-    const current: DeliveryState = activeBlock.deliveryState ?? { marked: {} };
-    const markedAt = new Date().toISOString();
-    const nextDeliveryState: DeliveryState = {
-      marked: { ...current.marked, [waybill]: { status, markedAt } },
-    };
-    updateBlockDeliveryState(activeBlock.id, nextDeliveryState);
+    const nextDeliveryState = markDelivery(activeBlock.id, waybill, status);
+    if (!nextDeliveryState) return;
     setActiveBlock({ ...activeBlock, deliveryState: nextDeliveryState });
+    const markedAt = nextDeliveryState.marked[waybill]!.markedAt;
     setOutcome((prev) =>
       prev && prev.kind === "own" && prev.stop.waybill === waybill
         ? { kind: "own", stop: { ...prev.stop, status, markedAt } }

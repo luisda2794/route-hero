@@ -11,7 +11,12 @@ import {
   XCircle,
 } from "lucide-react";
 import { parseEpodFile } from "@/lib/epod";
-import { assignmentsForBlock, getActiveBlockOrMostRecent, type RoutingBlock } from "@/lib/blocks";
+import {
+  assignmentsForBlock,
+  getActiveBlockOrMostRecent,
+  syncBlocksFromRemote,
+  type RoutingBlock,
+} from "@/lib/blocks";
 import { colorForDriverNumber } from "@/lib/clustering";
 import { buildTrackingSnapshot, type TrackingSnapshot } from "@/lib/tracking";
 import { AdminNav } from "@/components/admin-nav";
@@ -58,6 +63,9 @@ function SeguimientoPage() {
   useEffect(() => {
     setMounted(true);
     setActiveBlock(getActiveBlockOrMostRecent());
+    void syncBlocksFromRemote().then((changed) => {
+      if (changed) setActiveBlock(getActiveBlockOrMostRecent());
+    });
   }, []);
 
   async function handleFile(file: File | undefined) {

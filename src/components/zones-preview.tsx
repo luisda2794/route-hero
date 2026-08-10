@@ -31,6 +31,7 @@ export function ZonesPreview({
   onBack,
   onConfirm,
   confirmed,
+  creating,
   remoteSaveStatus,
 }: {
   groups: ZipGroup[];
@@ -39,14 +40,16 @@ export function ZonesPreview({
   onGroupsChange: (groups: ZipGroup[]) => void;
   onPudoGroupChange: (group: ZipGroup) => void;
   onBack: () => void;
-  onConfirm: () => void;
+  onConfirm: (name: string) => void;
   confirmed: boolean;
+  creating: boolean;
   remoteSaveStatus: "idle" | "saving" | "ok" | "error";
 }) {
   const navigate = useNavigate();
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
+  const [blockName, setBlockName] = useState("");
   const [expandedZoneId, setExpandedZoneId] = useState<string | null>(null);
 
   const allGroups = useMemo(() => (pudoGroup ? [...groups, pudoGroup] : groups), [groups, pudoGroup]);
@@ -146,15 +149,33 @@ export function ZonesPreview({
           )}
 
           <div className="space-y-3">
+            {!confirmed && (
+              <label className="block">
+                <span className="text-sm font-bold text-foreground">Nombre del bloque (opcional)</span>
+                <input
+                  type="text"
+                  value={blockName}
+                  onChange={(e) => setBlockName(e.target.value)}
+                  placeholder={`Ej. Ruta ${new Date().toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" })}`}
+                  className="mt-1 w-full rounded-xl border border-border bg-card px-4 py-3 text-base font-semibold text-foreground outline-none focus:border-accent"
+                />
+              </label>
+            )}
             <button
               type="button"
-              onClick={onConfirm}
-              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-5 text-xl font-black uppercase tracking-wide text-primary-foreground transition-opacity"
+              onClick={() => onConfirm(blockName)}
+              disabled={creating || confirmed}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-5 text-xl font-black uppercase tracking-wide text-primary-foreground transition-opacity disabled:opacity-70"
             >
               {confirmed ? (
                 <>
                   <CheckCircle2 className="h-6 w-6" />
                   Bloque guardado
+                </>
+              ) : creating ? (
+                <>
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                  Creando bloque…
                 </>
               ) : (
                 <>

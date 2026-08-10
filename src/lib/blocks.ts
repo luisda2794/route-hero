@@ -1,5 +1,13 @@
 import type { Zone, ZipGroup } from "./clustering";
 import { buildAssignments, type SavedAssignments } from "./assignment";
+import {
+  addDeliveryRemote,
+  addScanRemote,
+  deleteBlockRemote,
+  fetchRemoteBlocks,
+  resetScanRemote,
+  saveBlockRemote,
+} from "./blocks-remote";
 
 export type ScanRecord = { scannedAt: string };
 export type ScanState = { scanned: Record<string, ScanRecord> };
@@ -99,8 +107,17 @@ function defaultBlockName(createdAt: Date): string {
   return `Enrutamiento ${dd}/${mm}`;
 }
 
-/** Creates a new block, makes it the active one, and prunes down to `MAX_BLOCKS`. */
-export function createBlock(groups: ZipGroup[], pudoGroup: ZipGroup | null, name?: string): RoutingBlock {
+/**
+ * Creates a new block, makes it the active one, and prunes down to
+ * `MAX_BLOCKS`. Awaits the remote save (best-effort) before returning, so a
+ * device that immediately syncs afterward — e.g. navigating straight to the
+ * Dashboard — doesn't race ahead of the block actually landing in the cloud.
+ */
+export async function createBlock(
+  groups: ZipGroup[],
+  pudoGroup: ZipGroup | null,
+  name?: string,
+): Promise<RoutingBlock> {
   const now = new Date();
   const block: RoutingBlock = {
     id: crypto.randomUUID(),
@@ -114,6 +131,7 @@ export function createBlock(groups: ZipGroup[], pudoGroup: ZipGroup | null, name
   const store = loadStore();
   const blocks = [block, ...store.blocks].slice(0, MAX_BLOCKS);
   saveStore({ blocks, activeBlockId: block.id });
+  await saveBlockRemote(block);
   return block;
 }
 
@@ -125,10 +143,61 @@ export function renameBlock(id: string, name: string): void {
   saveStore({ ...store, blocks });
 }
 
-export function updateBlockScanState(id: string, scanState: ScanState): void {
+/** Pushes a block's current name to the cloud — call on blur, not on every keystroke of a rename input. */
+export function syncBlockNameToRemote(id: string): void {
+  const block = loadStore().blocks.find((b) => b.id === id);
+  if (block) void saveBlockRemote(block);
+}
+
+/** Removes a block locally and in the cloud (cascades its scan/delivery marks remotely). */
+export function deleteBlock(id: string): void {
   const store = loadStore();
+  const blocks = store.blocks.filter((b) => b.id !== id);
+  const activeBlockId = store.activeBlockId === id ? blocks[0]?.id ?? null : store.activeBlockId;
+  saveStore({ blocks, activeBlockId });
+  deleteBlockRemote(id);
+}
+
+/**
+ * Pulls every block from the cloud and, if reachable, makes it the new
+ * local cache verbatim — the cloud is the merged source of truth once
+ * online, so a block deleted or marked from another device shows up here
+ * too. Leaves the local cache untouched on failure (offline-safe). Returns
+ * whether the cache actually changed.
+ */
+export async function syncBlocksFromRemote(): Promise<boolean> {
+  const remoteBlocks = await fetchRemoteBlocks();
+  if (!remoteBlocks) return false;
+  const store = loadStore();
+  const activeBlockId =
+    store.activeBlockId && remoteBlocks.some((b) => b.id === store.activeBlockId)
+      ? store.activeBlockId
+      : remoteBlocks[0]?.id ?? null;
+  saveStore({ blocks: remoteBlocks, activeBlockId });
+  return true;
+}
+
+/** Records one scanned waybill (warehouse load-out) and pushes it to the cloud — returns the updated state, or null if the block doesn't exist. */
+export function markScanned(id: string, waybill: string): ScanState | null {
+  const store = loadStore();
+  const block = store.blocks.find((b) => b.id === id);
+  if (!block) return null;
+  const scannedAt = new Date().toISOString();
+  const scanState: ScanState = { scanned: { ...block.scanState.scanned, [waybill]: { scannedAt } } };
   const blocks = store.blocks.map((b) => (b.id === id ? { ...b, scanState } : b));
   saveStore({ ...store, blocks });
+  addScanRemote(id, waybill, scannedAt);
+  return scanState;
+}
+
+/** Clears a block's scan progress, locally and in the cloud — for "Reiniciar sesión de escaneo". */
+export function resetScanState(id: string): ScanState {
+  const emptyScanState: ScanState = { scanned: {} };
+  const store = loadStore();
+  const blocks = store.blocks.map((b) => (b.id === id ? { ...b, scanState: emptyScanState } : b));
+  saveStore({ ...store, blocks });
+  resetScanRemote(id);
+  return emptyScanState;
 }
 
 /** A block's delivery state, defaulting to empty for blocks saved before this field existed. */
@@ -136,10 +205,18 @@ export function deliveryStateOf(block: RoutingBlock): DeliveryState {
   return block.deliveryState ?? { marked: {} };
 }
 
-export function updateBlockDeliveryState(id: string, deliveryState: DeliveryState): void {
+/** Records a driver's delivery outcome for one waybill and pushes it to the cloud — returns the updated state, or null if the block doesn't exist. */
+export function markDelivery(id: string, waybill: string, status: DeliveryStatus): DeliveryState | null {
   const store = loadStore();
+  const block = store.blocks.find((b) => b.id === id);
+  if (!block) return null;
+  const markedAt = new Date().toISOString();
+  const current = deliveryStateOf(block);
+  const deliveryState: DeliveryState = { marked: { ...current.marked, [waybill]: { status, markedAt } } };
   const blocks = store.blocks.map((b) => (b.id === id ? { ...b, deliveryState } : b));
   saveStore({ ...store, blocks });
+  addDeliveryRemote(id, waybill, status, markedAt);
+  return deliveryState;
 }
 
 /** All of a block's zones — home CPs plus the PUDO route, if any. */

@@ -1,11 +1,23 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { Activity, Pencil, PackageSearch, PlusCircle, ScanLine } from "lucide-react";
+import {
+  Activity,
+  Loader2,
+  Pencil,
+  PackageSearch,
+  PlusCircle,
+  RefreshCw,
+  ScanLine,
+  Trash2,
+} from "lucide-react";
 import {
   listBlocks,
   getActiveBlockOrMostRecent,
   setActiveBlockId,
   renameBlock,
+  syncBlockNameToRemote,
+  deleteBlock,
+  syncBlocksFromRemote,
   blockPackageCount,
   blockDriverCount,
   type RoutingBlock,
@@ -41,11 +53,25 @@ function DashboardPage() {
   const [mounted, setMounted] = useState(false);
   const [blocks, setBlocks] = useState<RoutingBlock[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  function refreshFromLocalCache() {
+    setBlocks(listBlocks());
+    setSelectedId(getActiveBlockOrMostRecent()?.id ?? null);
+  }
+
+  async function syncNow() {
+    setSyncing(true);
+    await syncBlocksFromRemote();
+    refreshFromLocalCache();
+    setSyncing(false);
+  }
 
   useEffect(() => {
     setMounted(true);
-    setBlocks(listBlocks());
-    setSelectedId(getActiveBlockOrMostRecent()?.id ?? null);
+    refreshFromLocalCache(); // instant paint from cache…
+    void syncNow(); // …then refresh with whatever the rest of the team has saved
   }, []);
 
   const selectedBlock = blocks.find((b) => b.id === selectedId) ?? null;
@@ -69,6 +95,7 @@ function DashboardPage() {
   function handleSelect(id: string) {
     setSelectedId(id);
     setActiveBlockId(id);
+    setConfirmingDelete(false);
   }
 
   function handleRename(id: string, name: string) {
@@ -76,16 +103,36 @@ function DashboardPage() {
     setBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, name } : b)));
   }
 
+  function handleDelete(id: string) {
+    deleteBlock(id);
+    const remaining = blocks.filter((b) => b.id !== id);
+    setBlocks(remaining);
+    setSelectedId(remaining[0]?.id ?? null);
+    setConfirmingDelete(false);
+  }
+
   return (
     <main className="mx-auto min-h-screen w-full max-w-lg px-4 pb-16 pt-8 lg:max-w-6xl">
       <AdminNav />
 
-      <header className="mb-6">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Dashboard</p>
-        <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">RUTAFACIL</h1>
-        <p className="mt-2 text-base text-muted-foreground">
-          Tus bloques de enrutamiento guardados, con el mapa completo de zonas y conductores.
-        </p>
+      <header className="mb-6 flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Dashboard</p>
+          <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">RUTAFACIL</h1>
+          <p className="mt-2 text-base text-muted-foreground">
+            Bloques de enrutamiento compartidos por todo el equipo, desde cualquier dispositivo.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void syncNow()}
+          disabled={syncing}
+          aria-label="Actualizar bloques"
+          className="mt-1 flex shrink-0 items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-2 text-sm font-bold text-foreground disabled:opacity-60"
+        >
+          {syncing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          Actualizar
+        </button>
       </header>
 
       {mounted && blocks.length === 0 && (
@@ -155,6 +202,7 @@ function DashboardPage() {
                       type="text"
                       value={selectedBlock.name}
                       onChange={(e) => handleRename(selectedBlock.id, e.target.value)}
+                      onBlur={() => syncBlockNameToRemote(selectedBlock.id)}
                       className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm font-bold text-foreground outline-none focus:border-accent"
                     />
                   </label>
@@ -204,6 +252,36 @@ function DashboardPage() {
                           </span>
                         </Link>
                       ))}
+                  </div>
+
+                  <div className="mt-4">
+                    {confirmingDelete ? (
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleDelete(selectedBlock.id)}
+                          className="flex-1 rounded-xl bg-destructive px-4 py-2.5 text-sm font-bold text-destructive-foreground"
+                        >
+                          Sí, eliminar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingDelete(false)}
+                          className="flex-1 rounded-xl border border-border bg-card px-4 py-2.5 text-sm font-bold text-foreground"
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmingDelete(true)}
+                        className="flex w-full items-center justify-center gap-2 rounded-xl border border-destructive/40 px-4 py-2.5 text-sm font-bold text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        Eliminar bloque
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

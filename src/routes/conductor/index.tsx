@@ -1,7 +1,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Footprints, PackageSearch, Truck } from "lucide-react";
-import { getActiveBlockOrMostRecent, type RoutingBlock } from "@/lib/blocks";
+import { getActiveBlockOrMostRecent, syncBlocksFromRemote, type RoutingBlock } from "@/lib/blocks";
 import { allDriverProgress } from "@/lib/driver";
 import { colorForDriverNumber } from "@/lib/clustering";
 import { AdminNav } from "@/components/admin-nav";
@@ -26,6 +26,9 @@ function ConductorIndexPage() {
   useEffect(() => {
     setMounted(true);
     setActiveBlock(getActiveBlockOrMostRecent());
+    void syncBlocksFromRemote().then((changed) => {
+      if (changed) setActiveBlock(getActiveBlockOrMostRecent());
+    });
   }, []);
 
   const drivers = activeBlock ? allDriverProgress(activeBlock) : [];
