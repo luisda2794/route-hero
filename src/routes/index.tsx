@@ -15,7 +15,7 @@ import {
   getActiveBlockOrMostRecent,
   setActiveBlockId,
   renameBlock,
-  syncBlockNameToRemote,
+  syncBlockToRemote,
   deleteBlock,
   syncBlocksFromRemote,
   blockPackageCount,
@@ -24,6 +24,7 @@ import {
 } from "@/lib/blocks";
 import { assignZoneColors, type Zone } from "@/lib/clustering";
 import { AdminNav } from "@/components/admin-nav";
+import { usePollRemoteSync } from "@/hooks/use-poll-remote-sync";
 
 const ZonesMap = lazy(() => import("@/components/zones-map"));
 
@@ -73,6 +74,8 @@ function DashboardPage() {
     refreshFromLocalCache(); // instant paint from cache…
     void syncNow(); // …then refresh with whatever the rest of the team has saved
   }, []);
+
+  usePollRemoteSync(refreshFromLocalCache);
 
   const selectedBlock = blocks.find((b) => b.id === selectedId) ?? null;
 
@@ -202,7 +205,7 @@ function DashboardPage() {
                       type="text"
                       value={selectedBlock.name}
                       onChange={(e) => handleRename(selectedBlock.id, e.target.value)}
-                      onBlur={() => syncBlockNameToRemote(selectedBlock.id)}
+                      onBlur={() => syncBlockToRemote(selectedBlock.id)}
                       className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2.5 py-1.5 text-sm font-bold text-foreground outline-none focus:border-accent"
                     />
                   </label>

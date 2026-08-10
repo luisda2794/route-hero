@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -7,6 +7,7 @@ import {
   Clock,
   Footprints,
   MapPin,
+  Navigation,
   Truck,
   XCircle,
 } from "lucide-react";
@@ -15,12 +16,18 @@ import {
   assignmentsForBlock,
   getActiveBlockOrMostRecent,
   markDelivery,
+  renameZoneInBlock,
+  syncBlockToRemote,
   syncBlocksFromRemote,
   type RoutingBlock,
 } from "@/lib/blocks";
+import { colorForDriverNumber, type ZipGroup } from "@/lib/clustering";
 import { driverProgressFor, type DriverStop } from "@/lib/driver";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 import { AdminNav } from "@/components/admin-nav";
+import { usePollRemoteSync } from "@/hooks/use-poll-remote-sync";
+
+const DriverZoneMap = lazy(() => import("@/components/driver-zone-map"));
 
 export const Route = createFileRoute("/conductor/$driverNumber")({
   head: () => ({
@@ -58,6 +65,7 @@ function ConductorDetailPage() {
   const [activeBlock, setActiveBlock] = useState<RoutingBlock | null>(null);
   const [manualInput, setManualInput] = useState("");
   const [outcome, setOutcome] = useState<ScanOutcome | null>(null);
+  const [justScannedWaybill, setJustScannedWaybill] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
@@ -66,6 +74,8 @@ function ConductorDetailPage() {
       if (changed) setActiveBlock(getActiveBlockOrMostRecent());
     });
   }, []);
+
+  usePollRemoteSync(() => setActiveBlock(getActiveBlockOrMostRecent()));
 
   // "own" stays on screen until the driver picks Entregado/Fallado; every
   // other outcome (and an already-decided "own") auto-dismisses.
@@ -82,6 +92,49 @@ function ConductorDetailPage() {
     [activeBlock, driverNumber],
   );
   const assignments = useMemo(() => (activeBlock ? assignmentsForBlock(activeBlock) : null), [activeBlock]);
+
+  const driverColor = colorForDriverNumber(driverNumber);
+  const statusByWaybill = useMemo(() => {
+    const map: Record<string, DriverStop["status"]> = {};
+    if (!progress) return map;
+    for (const s of progress.stops) map[s.waybill] = s.status;
+    return map;
+  }, [progress]);
+  const zoneForMap = useMemo(() => {
+    if (!progress) return null;
+    return {
+      id: `driver-${progress.driverNumber}`,
+      zip: progress.stops[0]?.zip ?? "",
+      kind: progress.isPudo ? ("pudo" as const) : ("home" as const),
+      driverType: progress.driverType,
+      driverNumber: progress.driverNumber,
+      name: progress.zoneName,
+      points: progress.stops,
+    };
+  }, [progress]);
+  const nextPendingStop = useMemo(
+    () => progress?.stops.find((s) => s.status === "pending") ?? null,
+    [progress],
+  );
+  const completedCount = progress ? progress.delivered + progress.failed : 0;
+  const completionPct = progress && progress.total > 0 ? Math.round((completedCount / progress.total) * 100) : 0;
+
+  function handleRenameZone(name: string) {
+    if (!activeBlock) return;
+    renameZoneInBlock(activeBlock.id, driverNumber, name);
+    setActiveBlock((prev) => {
+      if (!prev) return prev;
+      const renameIn = (group: ZipGroup): ZipGroup => ({
+        ...group,
+        zones: group.zones.map((z) => (z.driverNumber === driverNumber ? { ...z, name } : z)),
+      });
+      return {
+        ...prev,
+        groups: prev.groups.map(renameIn),
+        pudoGroup: prev.pudoGroup ? renameIn(prev.pudoGroup) : null,
+      };
+    });
+  }
 
   function markStop(waybill: string, status: "delivered" | "failed") {
     if (!activeBlock) return;
@@ -113,6 +166,7 @@ function ConductorDetailPage() {
     const stop = progress.stops.find((s) => s.waybill === text);
     if (!stop) return; // assignment says this driver, but stop list disagrees — shouldn't happen
     setOutcome({ kind: "own", stop });
+    setJustScannedWaybill(stop.waybill);
     playFeedback("success");
   }
 
@@ -164,7 +218,14 @@ function ConductorDetailPage() {
         <>
           <header className="mb-6">
             <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Conductor {progress.driverNumber}</p>
-            <h1 className="mt-1 text-3xl font-black tracking-tight text-foreground">{progress.zoneName}</h1>
+            <input
+              type="text"
+              value={progress.zoneName}
+              onChange={(e) => handleRenameZone(e.target.value)}
+              onBlur={() => activeBlock && syncBlockToRemote(activeBlock.id)}
+              aria-label="Nombre del conductor / zona"
+              className="mt-1 w-full rounded-lg bg-transparent text-3xl font-black tracking-tight text-foreground outline-none focus:bg-secondary/50 focus:px-2 focus:py-1 focus:-mx-2"
+            />
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="flex items-center gap-1 rounded-full bg-secondary px-3 py-1 text-xs font-black uppercase tracking-wide text-foreground">
                 {progress.driverType === "andarin" ? (
@@ -181,6 +242,55 @@ function ConductorDetailPage() {
               )}
             </div>
           </header>
+
+          <section className="mb-6">
+            <div className="mb-1.5 flex items-baseline justify-between">
+              <span className="text-sm font-bold text-foreground">
+                {completedCount} de {progress.total} paradas completadas
+              </span>
+              <span className="text-sm font-black text-accent">{completionPct}%</span>
+            </div>
+            <div className="h-4 w-full overflow-hidden rounded-full bg-secondary">
+              <div
+                className="h-full rounded-full bg-accent transition-all"
+                style={{ width: `${completionPct}%` }}
+              />
+            </div>
+          </section>
+
+          {zoneForMap && zoneForMap.points.length > 0 && (
+            <section className="mb-6">
+              {mounted ? (
+                <Suspense fallback={<div className="h-72 w-full animate-pulse rounded-xl bg-secondary" />}>
+                  <DriverZoneMap
+                    zone={zoneForMap}
+                    color={driverColor}
+                    statusByWaybill={statusByWaybill}
+                    highlightedWaybill={justScannedWaybill}
+                    className="h-72 w-full rounded-xl border border-border"
+                  />
+                </Suspense>
+              ) : (
+                <div className="h-72 w-full animate-pulse rounded-xl bg-secondary" />
+              )}
+            </section>
+          )}
+
+          {nextPendingStop && (
+            <button
+              type="button"
+              onClick={() => setOutcome({ kind: "own", stop: nextPendingStop })}
+              className="mb-6 flex w-full items-center gap-3 rounded-xl border border-accent/40 bg-accent/10 px-4 py-3 text-left"
+            >
+              <Navigation className="h-6 w-6 shrink-0 text-accent" />
+              <div className="min-w-0 flex-1">
+                <p className="text-xs font-bold uppercase tracking-wide text-accent">Siguiente parada</p>
+                <p className="truncate text-sm font-bold text-foreground">
+                  Parada {nextPendingStop.stopNumber} · CP {nextPendingStop.zip} · {nextPendingStop.address || "—"}
+                </p>
+              </div>
+            </button>
+          )}
 
           <section className="mb-6 grid grid-cols-3 gap-3">
             <CounterCard
@@ -231,7 +341,11 @@ function ConductorDetailPage() {
                 key={stop.waybill}
                 type="button"
                 onClick={() => setOutcome({ kind: "own", stop })}
-                className="flex w-full items-center gap-3 rounded-xl border border-border bg-card p-3 text-left"
+                className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${
+                  stop.waybill === justScannedWaybill
+                    ? "border-accent bg-accent/10"
+                    : "border-border bg-card"
+                }`}
               >
                 <StatusIcon status={stop.status} />
                 <div className="min-w-0 flex-1">

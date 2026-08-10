@@ -20,6 +20,7 @@ import {
 import { colorForDriverNumber } from "@/lib/clustering";
 import { buildTrackingSnapshot, type TrackingSnapshot } from "@/lib/tracking";
 import { AdminNav } from "@/components/admin-nav";
+import { usePollRemoteSync } from "@/hooks/use-poll-remote-sync";
 
 const TrackingMap = lazy(() => import("@/components/tracking-map"));
 
@@ -67,6 +68,8 @@ function SeguimientoPage() {
       if (changed) setActiveBlock(getActiveBlockOrMostRecent());
     });
   }, []);
+
+  usePollRemoteSync(() => setActiveBlock(getActiveBlockOrMostRecent()));
 
   async function handleFile(file: File | undefined) {
     if (!file || !activeBlock) return;

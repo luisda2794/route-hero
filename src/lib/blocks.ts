@@ -143,8 +143,25 @@ export function renameBlock(id: string, name: string): void {
   saveStore({ ...store, blocks });
 }
 
-/** Pushes a block's current name to the cloud — call on blur, not on every keystroke of a rename input. */
-export function syncBlockNameToRemote(id: string): void {
+/** Renames one zone (identified by its driver number) within an already-saved block — e.g. the driver's own name from the /conductor panel. */
+export function renameZoneInBlock(blockId: string, driverNumber: number, name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const renameIn = (group: ZipGroup): ZipGroup => ({
+    ...group,
+    zones: group.zones.map((z) => (z.driverNumber === driverNumber ? { ...z, name: trimmed } : z)),
+  });
+  const store = loadStore();
+  const blocks = store.blocks.map((b) =>
+    b.id === blockId
+      ? { ...b, groups: b.groups.map(renameIn), pudoGroup: b.pudoGroup ? renameIn(b.pudoGroup) : null }
+      : b,
+  );
+  saveStore({ ...store, blocks });
+}
+
+/** Pushes a block's current contents to the cloud — call on blur after a rename, not on every keystroke. */
+export function syncBlockToRemote(id: string): void {
   const block = loadStore().blocks.find((b) => b.id === id);
   if (block) void saveBlockRemote(block);
 }

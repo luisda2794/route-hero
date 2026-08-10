@@ -5,6 +5,7 @@ import { getActiveBlockOrMostRecent, syncBlocksFromRemote, type RoutingBlock } f
 import { allDriverProgress } from "@/lib/driver";
 import { colorForDriverNumber } from "@/lib/clustering";
 import { AdminNav } from "@/components/admin-nav";
+import { usePollRemoteSync } from "@/hooks/use-poll-remote-sync";
 
 export const Route = createFileRoute("/conductor/")({
   head: () => ({
@@ -30,6 +31,8 @@ function ConductorIndexPage() {
       if (changed) setActiveBlock(getActiveBlockOrMostRecent());
     });
   }, []);
+
+  usePollRemoteSync(() => setActiveBlock(getActiveBlockOrMostRecent()));
 
   const drivers = activeBlock ? allDriverProgress(activeBlock) : [];
 

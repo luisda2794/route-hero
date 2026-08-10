@@ -13,6 +13,7 @@ import {
 } from "@/lib/blocks";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 import { AdminNav } from "@/components/admin-nav";
+import { usePollRemoteSync } from "@/hooks/use-poll-remote-sync";
 
 export const Route = createFileRoute("/escanear")({
   head: () => ({
@@ -64,6 +65,8 @@ function ScanPage() {
       if (changed) setActiveBlock(getActiveBlockOrMostRecent());
     });
   }, []);
+
+  usePollRemoteSync(() => setActiveBlock(getActiveBlockOrMostRecent()));
 
   useEffect(() => {
     if (!result) return;
