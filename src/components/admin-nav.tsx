@@ -1,11 +1,12 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, LayoutDashboard, PlusCircle, ScanLine } from "lucide-react";
+import { Activity, LayoutDashboard, PlusCircle, ScanLine, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { to: "/" as const, label: "Dashboard", icon: LayoutDashboard },
   { to: "/nuevo" as const, label: "Nuevo bloque", icon: PlusCircle },
   { to: "/escanear" as const, label: "Escanear", icon: ScanLine },
+  { to: "/conductor" as const, label: "Conductor", icon: UserRound },
   { to: "/seguimiento" as const, label: "Seguimiento", icon: Activity },
 ];
 

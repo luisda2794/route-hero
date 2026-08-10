@@ -185,7 +185,12 @@ function DashboardPage() {
                       .slice()
                       .sort((a, b) => a.driverNumber - b.driverNumber)
                       .map((zone) => (
-                        <div key={zone.id} className="flex items-center gap-2 rounded-lg px-2 py-1.5">
+                        <Link
+                          key={zone.id}
+                          to="/conductor/$driverNumber"
+                          params={{ driverNumber: String(zone.driverNumber) }}
+                          className="flex items-center gap-2 rounded-lg px-2 py-1.5 transition-colors hover:bg-secondary"
+                        >
                           <span
                             className="h-3 w-3 shrink-0 rounded-full"
                             style={{ backgroundColor: zoneColors[zone.id] ?? "#9ca3af" }}
@@ -197,7 +202,7 @@ function DashboardPage() {
                           <span className="shrink-0 text-xs font-bold text-muted-foreground">
                             {zone.points.length}
                           </span>
-                        </div>
+                        </Link>
                       ))}
                   </div>
                 </div>

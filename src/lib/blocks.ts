@@ -1,8 +1,17 @@
-import type { ZipGroup } from "./clustering";
+import type { Zone, ZipGroup } from "./clustering";
 import { buildAssignments, type SavedAssignments } from "./assignment";
 
 export type ScanRecord = { scannedAt: string };
 export type ScanState = { scanned: Record<string, ScanRecord> };
+
+export type DeliveryStatus = "delivered" | "failed";
+export type DeliveryRecord = { status: DeliveryStatus; markedAt: string };
+/**
+ * Driver-confirmed delivery outcome per waybill — separate from `scanState`,
+ * which only tracks the warehouse load-out scan, not what actually happened
+ * on the route.
+ */
+export type DeliveryState = { marked: Record<string, DeliveryRecord> };
 
 /**
  * A single "Bloque de enrutamiento" — everything computed the last time zones
@@ -17,6 +26,8 @@ export type RoutingBlock = {
   groups: ZipGroup[];
   pudoGroup: ZipGroup | null;
   scanState: ScanState;
+  /** Optional — blocks saved before this field existed simply have none marked yet. */
+  deliveryState?: DeliveryState;
 };
 
 type BlocksStore = { blocks: RoutingBlock[]; activeBlockId: string | null };
@@ -98,6 +109,7 @@ export function createBlock(groups: ZipGroup[], pudoGroup: ZipGroup | null, name
     groups,
     pudoGroup,
     scanState: { scanned: {} },
+    deliveryState: { marked: {} },
   };
   const store = loadStore();
   const blocks = [block, ...store.blocks].slice(0, MAX_BLOCKS);
@@ -119,9 +131,25 @@ export function updateBlockScanState(id: string, scanState: ScanState): void {
   saveStore({ ...store, blocks });
 }
 
+/** A block's delivery state, defaulting to empty for blocks saved before this field existed. */
+export function deliveryStateOf(block: RoutingBlock): DeliveryState {
+  return block.deliveryState ?? { marked: {} };
+}
+
+export function updateBlockDeliveryState(id: string, deliveryState: DeliveryState): void {
+  const store = loadStore();
+  const blocks = store.blocks.map((b) => (b.id === id ? { ...b, deliveryState } : b));
+  saveStore({ ...store, blocks });
+}
+
 /** All of a block's zones — home CPs plus the PUDO route, if any. */
 function allGroupsOf(block: RoutingBlock): ZipGroup[] {
   return block.pudoGroup ? [...block.groups, block.pudoGroup] : block.groups;
+}
+
+/** Every zone across a block, flattened — lets /conductor find a driver's zone by `driverNumber` without caring whether it's a home CP or the PUDO route. */
+export function allZonesOf(block: RoutingBlock): Zone[] {
+  return allGroupsOf(block).flatMap((g) => g.zones);
 }
 
 /** Flattened waybill→zone lookup for a block, derived on demand — never stored redundantly. */
