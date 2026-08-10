@@ -66,7 +66,7 @@ export function BarcodeScanner({ onDetected }: { onDetected: (text: string) => v
   return (
     <div
       id={SCANNER_ELEMENT_ID}
-      className="w-full overflow-hidden rounded-2xl border-2 border-border [&_video]:rounded-2xl"
+      className="w-full overflow-hidden rounded-xl border border-border [&_video]:rounded-xl"
     />
   );
 }

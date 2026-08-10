@@ -1,15 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { AlertTriangle, ChevronDown, Footprints, RotateCcw, Truck } from "lucide-react";
+import type { WaybillAssignment } from "@/lib/assignment";
 import {
-  loadAssignments,
-  loadScanState,
-  saveScanState,
-  resetScanState,
-  type SavedAssignments,
+  assignmentsForBlock,
+  getActiveBlockOrMostRecent,
+  updateBlockScanState,
+  type RoutingBlock,
   type ScanState,
-  type WaybillAssignment,
-} from "@/lib/assignment";
+} from "@/lib/blocks";
 import { BarcodeScanner } from "@/components/barcode-scanner";
 import { AdminNav } from "@/components/admin-nav";
 
@@ -50,8 +49,7 @@ function playFeedback(kind: "success" | "warning" | "error") {
 
 function ScanPage() {
   const [mounted, setMounted] = useState(false);
-  const [assignments, setAssignments] = useState<SavedAssignments | null>(null);
-  const [scanState, setScanState] = useState<ScanState>({ scanned: {} });
+  const [activeBlock, setActiveBlock] = useState<RoutingBlock | null>(null);
   const [manualInput, setManualInput] = useState("");
   const [result, setResult] = useState<ScanResult | null>(null);
   const [progressOpen, setProgressOpen] = useState(false);
@@ -59,8 +57,7 @@ function ScanPage() {
 
   useEffect(() => {
     setMounted(true);
-    setAssignments(loadAssignments());
-    setScanState(loadScanState());
+    setActiveBlock(getActiveBlockOrMostRecent());
   }, []);
 
   useEffect(() => {
@@ -68,6 +65,9 @@ function ScanPage() {
     const t = setTimeout(() => setResult(null), 2500);
     return () => clearTimeout(t);
   }, [result]);
+
+  const assignments = useMemo(() => (activeBlock ? assignmentsForBlock(activeBlock) : null), [activeBlock]);
+  const scanState: ScanState = activeBlock?.scanState ?? { scanned: {} };
 
   const driverProgress = useMemo(() => {
     if (!assignments) return [];
@@ -89,7 +89,7 @@ function ScanPage() {
   const totalPackages = assignments ? Object.keys(assignments.byWaybill).length : 0;
 
   function processWaybill(waybill: string) {
-    if (!assignments) return;
+    if (!assignments || !activeBlock) return;
     const assignment = assignments.byWaybill[waybill];
     if (!assignment) {
       setResult({ kind: "not-found", text: waybill });
@@ -104,8 +104,8 @@ function ScanPage() {
     const nextScanState: ScanState = {
       scanned: { ...scanState.scanned, [waybill]: { scannedAt: new Date().toISOString() } },
     };
-    setScanState(nextScanState);
-    saveScanState(nextScanState);
+    updateBlockScanState(activeBlock.id, nextScanState);
+    setActiveBlock({ ...activeBlock, scanState: nextScanState });
     setResult({ kind: "found-new", assignment });
     playFeedback("success");
   }
@@ -129,8 +129,10 @@ function ScanPage() {
   }
 
   function handleResetScan() {
-    resetScanState();
-    setScanState({ scanned: {} });
+    if (!activeBlock) return;
+    const emptyScanState: ScanState = { scanned: {} };
+    updateBlockScanState(activeBlock.id, emptyScanState);
+    setActiveBlock({ ...activeBlock, scanState: emptyScanState });
     setResult(null);
   }
 
@@ -139,25 +141,29 @@ function ScanPage() {
       <AdminNav />
 
       <header className="mb-6">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Paso 4 de 4</p>
-        <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">Escaneo</h1>
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Escaneo</p>
+        <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">
+          {activeBlock ? activeBlock.name : "Escaneo"}
+        </h1>
         <p className="mt-2 text-base text-muted-foreground">
           Escanea el waybill de cada paquete para confirmar conductor y parada.
         </p>
       </header>
 
-      {mounted && !assignments && (
-        <div className="rounded-2xl bg-card p-6 text-center shadow-sm">
-          <p className="text-lg font-bold text-foreground">No hay zonas guardadas todavía</p>
+      {mounted && !activeBlock && (
+        <div className="rounded-xl border border-border bg-card p-6 text-center">
+          <p className="text-lg font-bold text-foreground">No hay ningún bloque activo</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Vuelve al Paso 1, calcula las zonas y confirma para empezar a escanear.
+            Crea un bloque nuevo o elige uno en el Dashboard para empezar a escanear.
           </p>
-          <Link
-            to="/"
-            className="mt-4 inline-block rounded-xl bg-primary px-5 py-3 font-bold text-primary-foreground"
-          >
-            Ir al Paso 1
-          </Link>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Link to="/nuevo" className="inline-block rounded-xl bg-primary px-5 py-3 font-bold text-primary-foreground">
+              Crear bloque
+            </Link>
+            <Link to="/" className="inline-block rounded-xl border border-border bg-card px-5 py-3 font-bold text-foreground">
+              Ir al Dashboard
+            </Link>
+          </div>
         </div>
       )}
 
@@ -166,7 +172,7 @@ function ScanPage() {
           <button
             type="button"
             onClick={() => setProgressOpen((v) => !v)}
-            className="mb-4 flex w-full items-center justify-between rounded-2xl bg-card px-4 py-3 shadow-sm"
+            className="mb-4 flex w-full items-center justify-between rounded-xl border border-border bg-card px-4 py-3"
           >
             <span className="font-bold text-foreground">
               Progreso: {totalScanned}/{totalPackages} escaneados
@@ -174,7 +180,7 @@ function ScanPage() {
             <ChevronDown className={`h-5 w-5 transition-transform ${progressOpen ? "rotate-180" : ""}`} />
           </button>
           {progressOpen && (
-            <div className="mb-4 max-h-56 space-y-1 overflow-y-auto rounded-2xl bg-card p-3 shadow-sm">
+            <div className="mb-4 max-h-56 space-y-1 overflow-y-auto rounded-xl border border-border bg-card p-3">
               {driverProgress.map((d) => (
                 <div key={d.driverNumber} className="flex justify-between text-sm">
                   <span className="font-semibold text-foreground">Conductor {d.driverNumber}</span>
@@ -200,7 +206,7 @@ function ScanPage() {
               value={manualInput}
               onChange={(e) => setManualInput(e.target.value)}
               placeholder="Escribe el número de waybill"
-              className="min-w-0 flex-1 rounded-xl border-2 border-border bg-card px-4 py-3 text-base font-semibold text-foreground outline-none focus:border-accent"
+              className="min-w-0 flex-1 rounded-xl border border-border bg-card px-4 py-3 text-base font-semibold text-foreground outline-none focus:border-accent"
             />
             <button
               type="submit"
@@ -213,7 +219,7 @@ function ScanPage() {
           <button
             type="button"
             onClick={handleResetScan}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-border bg-card px-6 py-4 text-lg font-bold text-foreground"
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-4 text-lg font-bold text-foreground"
           >
             <RotateCcw className="h-5 w-5" />
             Reiniciar sesión de escaneo

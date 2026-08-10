@@ -81,7 +81,7 @@ function ConsultaPage() {
           value={manualInput}
           onChange={(e) => setManualInput(e.target.value)}
           placeholder="Escribe el número de guía"
-          className="min-w-0 flex-1 rounded-xl border-2 border-border bg-card px-4 py-3 text-base font-semibold text-foreground outline-none focus:border-accent"
+          className="min-w-0 flex-1 rounded-xl border border-border bg-card px-4 py-3 text-base font-semibold text-foreground outline-none focus:border-accent"
         />
         <button
           type="submit"

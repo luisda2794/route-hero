@@ -20,12 +20,6 @@ export type SavedAssignments = {
   driverTotals: Record<number, number>;
 };
 
-export type ScanRecord = { scannedAt: string };
-export type ScanState = { scanned: Record<string, ScanRecord> };
-
-const ASSIGNMENTS_KEY = "rutafacil.assignments.v1";
-const SCAN_STATE_KEY = "rutafacil.scanState.v1";
-
 /** Flattens the CP → zone → point tree into a waybill-keyed lookup. */
 export function buildAssignments(groups: ZipGroup[]): SavedAssignments {
   const byWaybill: Record<string, WaybillAssignment> = {};
@@ -55,45 +49,12 @@ export function buildAssignments(groups: ZipGroup[]): SavedAssignments {
   return { savedAt: new Date().toISOString(), byWaybill, driverTotals };
 }
 
-export function saveAssignments(assignments: SavedAssignments): void {
-  localStorage.setItem(ASSIGNMENTS_KEY, JSON.stringify(assignments));
-}
-
-export function loadAssignments(): SavedAssignments | null {
-  const raw = localStorage.getItem(ASSIGNMENTS_KEY);
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as SavedAssignments;
-  } catch {
-    return null;
-  }
-}
-
-export function loadScanState(): ScanState {
-  const raw = localStorage.getItem(SCAN_STATE_KEY);
-  if (!raw) return { scanned: {} };
-  try {
-    return JSON.parse(raw) as ScanState;
-  } catch {
-    return { scanned: {} };
-  }
-}
-
-export function saveScanState(state: ScanState): void {
-  localStorage.setItem(SCAN_STATE_KEY, JSON.stringify(state));
-}
-
-/** Clears scan progress only — the zone/stop mapping itself is untouched. */
-export function resetScanState(): void {
-  localStorage.removeItem(SCAN_STATE_KEY);
-}
-
 /**
  * Saves this session's assignments to the shared Supabase backend, so
  * /consulta can look up a package's zone from any device — not just the one
- * that confirmed the zones. Best-effort: the local save (source of truth for
- * /escanear) already happened by the time this runs, so a failure here is
- * reported to the caller but never rolled back or retried automatically.
+ * that confirmed the zones. Best-effort: the local block (source of truth for
+ * /escanear and /seguimiento) is saved separately via `createBlock`, so a
+ * failure here is reported to the caller but never rolled back or retried.
  */
 export async function saveAssignmentsRemote(assignments: SavedAssignments): Promise<boolean> {
   try {

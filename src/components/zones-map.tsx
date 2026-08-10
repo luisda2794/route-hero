@@ -18,21 +18,27 @@ function FitBounds({ points }: { points: LatLngExpression[] }) {
 }
 
 /** Client-only Leaflet map — must be lazy-loaded, never imported during SSR. */
-export default function ZonesMap({ zones, colors }: { zones: Zone[]; colors: Record<string, string> }) {
+export default function ZonesMap({
+  zones,
+  colors,
+  className = "h-80 w-full rounded-xl border border-border",
+}: {
+  zones: Zone[];
+  colors: Record<string, string>;
+  /** Overrides the default size/shape — the Dashboard and Paso 3 pass a much taller class. */
+  className?: string;
+}) {
   const allPoints: LatLngExpression[] = zones.flatMap((zone) =>
     zone.points.map((p): LatLngExpression => [p.lat, p.lon]),
   );
 
   return (
-    <MapContainer
-      center={allPoints[0] ?? MADRID_CENTER}
-      zoom={12}
-      scrollWheelZoom
-      className="h-80 w-full rounded-2xl border-2 border-border"
-    >
+    <MapContainer center={allPoints[0] ?? MADRID_CENTER} zoom={12} scrollWheelZoom className={className}>
       <TileLayer
-        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
+        url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+        subdomains={["a", "b", "c", "d"]}
+        maxZoom={19}
       />
       {zones.map((zone) => {
         const color = colors[zone.id] ?? FALLBACK_COLOR;

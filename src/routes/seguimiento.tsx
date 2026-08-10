@@ -11,7 +11,8 @@ import {
   XCircle,
 } from "lucide-react";
 import { parseEpodFile } from "@/lib/epod";
-import { loadAssignments, type SavedAssignments } from "@/lib/assignment";
+import { assignmentsForBlock, getActiveBlockOrMostRecent, type RoutingBlock } from "@/lib/blocks";
+import { colorForDriverNumber } from "@/lib/clustering";
 import { buildTrackingSnapshot, type TrackingSnapshot } from "@/lib/tracking";
 import { AdminNav } from "@/components/admin-nav";
 
@@ -50,22 +51,22 @@ function SeguimientoPage() {
   const [dragging, setDragging] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [assignments, setAssignments] = useState<SavedAssignments | null>(null);
+  const [activeBlock, setActiveBlock] = useState<RoutingBlock | null>(null);
   const [snapshot, setSnapshot] = useState<TrackingSnapshot | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
 
   useEffect(() => {
     setMounted(true);
-    setAssignments(loadAssignments());
+    setActiveBlock(getActiveBlockOrMostRecent());
   }, []);
 
   async function handleFile(file: File | undefined) {
-    if (!file || !assignments) return;
+    if (!file || !activeBlock) return;
     setLoading(true);
     setError(null);
     try {
       const parsed = await parseEpodFile(file);
-      setSnapshot(buildTrackingSnapshot(parsed.inDeliveryRows, assignments));
+      setSnapshot(buildTrackingSnapshot(parsed.inDeliveryRows, assignmentsForBlock(activeBlock)));
       setFileName(file.name);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo leer el archivo.");
@@ -76,32 +77,36 @@ function SeguimientoPage() {
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-lg px-4 pb-16 pt-8 lg:max-w-5xl">
+      <AdminNav />
+
       <header className="mb-6">
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Seguimiento</p>
-        <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">RUTAFACIL</h1>
+        <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">
+          {activeBlock ? activeBlock.name : "RUTAFACIL"}
+        </h1>
         <p className="mt-2 text-base text-muted-foreground">
           Mapa en vivo del estado de entrega de cada paquete del día.
         </p>
       </header>
 
-      <AdminNav />
-
-      {mounted && !assignments && (
-        <div className="rounded-2xl bg-card p-6 text-center shadow-sm">
-          <p className="text-lg font-bold text-foreground">No hay zonas guardadas todavía</p>
+      {mounted && !activeBlock && (
+        <div className="rounded-xl border border-border bg-card p-6 text-center">
+          <p className="text-lg font-bold text-foreground">No hay ningún bloque activo</p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Vuelve al Paso 1, calcula las zonas y confirma antes de hacer seguimiento.
+            Crea un bloque nuevo o elige uno en el Dashboard antes de hacer seguimiento.
           </p>
-          <Link
-            to="/"
-            className="mt-4 inline-block rounded-xl bg-primary px-5 py-3 font-bold text-primary-foreground"
-          >
-            Ir al Paso 1
-          </Link>
+          <div className="mt-4 flex flex-wrap justify-center gap-2">
+            <Link to="/nuevo" className="inline-block rounded-xl bg-primary px-5 py-3 font-bold text-primary-foreground">
+              Crear bloque
+            </Link>
+            <Link to="/" className="inline-block rounded-xl border border-border bg-card px-5 py-3 font-bold text-foreground">
+              Ir al Dashboard
+            </Link>
+          </div>
         </div>
       )}
 
-      {assignments && (
+      {activeBlock && (
         <>
           <input
             ref={inputRef}
@@ -123,7 +128,7 @@ function SeguimientoPage() {
               setDragging(false);
               void handleFile(e.dataTransfer.files?.[0]);
             }}
-            className={`mb-2 flex w-full flex-col items-center gap-2 rounded-2xl border-2 border-dashed px-6 py-6 text-center transition-colors ${
+            className={`mb-2 flex w-full flex-col items-center gap-2 rounded-xl border border-dashed px-6 py-6 text-center transition-colors ${
               dragging ? "border-accent bg-accent/10" : "border-border bg-card"
             }`}
           >
@@ -173,17 +178,20 @@ function SeguimientoPage() {
                 />
               </section>
 
-              <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
+              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
                 <section>
                   <h2 className="mb-3 text-lg font-bold text-foreground">Mapa de entregas</h2>
                   {mounted ? (
                     <Suspense
-                      fallback={<div className="h-[28rem] w-full animate-pulse rounded-2xl bg-secondary" />}
+                      fallback={<div className="h-[70vh] w-full animate-pulse rounded-xl bg-secondary" />}
                     >
-                      <TrackingMap packages={snapshot.tracked} />
+                      <TrackingMap
+                        packages={snapshot.tracked}
+                        className="h-[70vh] w-full rounded-xl border border-border lg:h-[calc(100vh-14rem)]"
+                      />
                     </Suspense>
                   ) : (
-                    <div className="h-[28rem] w-full animate-pulse rounded-2xl bg-secondary" />
+                    <div className="h-[70vh] w-full animate-pulse rounded-xl bg-secondary" />
                   )}
                 </section>
 
@@ -192,15 +200,18 @@ function SeguimientoPage() {
                     <h2 className="mb-3 text-lg font-bold text-foreground">Por conductor</h2>
                     <div className="space-y-3">
                       {snapshot.driverBreakdown.map((d) => (
-                        <div key={d.driverNumber} className="rounded-2xl bg-card p-3 shadow-sm">
+                        <div key={d.driverNumber} className="rounded-xl border border-border bg-card p-3">
                           <div className="mb-1.5 flex items-center gap-2">
-                            <span className="shrink-0 rounded-lg bg-secondary p-1.5 text-foreground">
-                              {d.driverType === "andarin" ? (
-                                <Footprints className="h-4 w-4" />
-                              ) : (
-                                <Truck className="h-4 w-4" />
-                              )}
-                            </span>
+                            <span
+                              className="h-3 w-3 shrink-0 rounded-full"
+                              style={{ backgroundColor: colorForDriverNumber(d.driverNumber) }}
+                              aria-hidden
+                            />
+                            {d.driverType === "andarin" ? (
+                              <Footprints className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            ) : (
+                              <Truck className="h-4 w-4 shrink-0 text-muted-foreground" />
+                            )}
                             <span className="min-w-0 flex-1 truncate text-sm font-bold text-foreground">
                               Conductor {d.driverNumber} — {d.zoneName}
                             </span>
@@ -239,7 +250,7 @@ function SeguimientoPage() {
                         <PackageX className="h-5 w-5 text-destructive" />
                         Sin ruta asignada ({snapshot.unassigned.length})
                       </h2>
-                      <div className="max-h-48 space-y-1 overflow-y-auto rounded-2xl bg-card p-3 shadow-sm">
+                      <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-border bg-card p-3">
                         {snapshot.unassigned.map((row) => (
                           <div key={row.waybill} className="flex justify-between gap-2 text-sm">
                             <span className="truncate font-semibold text-foreground">{row.waybill}</span>

@@ -7,8 +7,8 @@ import {
   Cloud,
   CloudOff,
   Footprints,
+  LayoutDashboard,
   Loader2,
-  MapPin,
   PackageCheck,
   PackageSearch,
   PackageX,
@@ -69,8 +69,8 @@ export function ZonesPreview({
   }
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-lg px-4 pb-16 pt-8">
-      <header className="mb-8">
+    <main className="mx-auto min-h-screen w-full max-w-lg px-4 pb-16 pt-8 lg:max-w-6xl">
+      <header className="mb-6">
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Paso 3 de 4</p>
         <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">RUTAFACIL</h1>
         <p className="mt-2 text-base text-muted-foreground">
@@ -78,141 +78,153 @@ export function ZonesPreview({
         </p>
       </header>
 
-      <section className="mb-6 space-y-5">
-        <h2 className="text-lg font-bold text-foreground">Zonas por Código Postal</h2>
-        {groups.map((group) => (
-          <ZoneGroupCard
-            key={group.zip}
-            title={`CP ${group.zip}`}
-            group={group}
-            colors={zoneColors}
-            expandedZoneId={expandedZoneId}
-            onToggleExpand={(id) => setExpandedZoneId(expandedZoneId === id ? null : id)}
-            onRename={(zoneId, name) => renameZone(group.zip, zoneId, name)}
-          />
-        ))}
-      </section>
-
-      {pudoGroup && pudoGroup.zones.length > 0 && (
-        <section className="mb-6 space-y-2">
-          <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
-            <PackageCheck className="h-5 w-5 text-accent" />
-            Ruta PUDO
-          </h2>
-          <ZoneGroupCard
-            title="Ruta PUDO (todos los CP)"
-            group={pudoGroup}
-            colors={zoneColors}
-            expandedZoneId={expandedZoneId}
-            onToggleExpand={(id) => setExpandedZoneId(expandedZoneId === id ? null : id)}
-            onRename={(zoneId, name) => renameZone(pudoGroup.zip, zoneId, name)}
-          />
-        </section>
-      )}
-
-      {unlocated.length > 0 && (
-        <section className="mb-6">
-          <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-foreground">
-            <PackageX className="h-5 w-5 text-destructive" />
-            Sin ubicación — asignar manualmente ({unlocated.length})
-          </h2>
-          <div className="max-h-48 space-y-1 overflow-y-auto rounded-2xl bg-card p-3 shadow-sm">
-            {unlocated.map((row) => (
-              <div key={row.waybill} className="flex justify-between gap-2 text-sm">
-                <span className="truncate font-semibold text-foreground">{row.waybill}</span>
-                <span className="truncate text-muted-foreground">
-                  {row.zip ? `CP ${row.zip}` : "Sin CP"} · {row.address || "—"}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="mb-6">
-        <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-foreground">
-          <MapPin className="h-5 w-5 text-accent" />
-          Mapa de zonas
-        </h2>
-        {mounted ? (
-          <Suspense
-            fallback={<div className="h-80 w-full animate-pulse rounded-2xl bg-secondary" />}
-          >
-            <ZonesMap zones={allZones} colors={zoneColors} />
-          </Suspense>
-        ) : (
-          <div className="h-80 w-full animate-pulse rounded-2xl bg-secondary" />
-        )}
-      </section>
-
-      <div className="space-y-3">
-        <button
-          type="button"
-          onClick={onConfirm}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-5 text-xl font-black uppercase tracking-wide text-primary-foreground transition-opacity"
-        >
-          {confirmed ? (
-            <>
-              <CheckCircle2 className="h-6 w-6" />
-              Zonas guardadas
-            </>
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <section>
+          {mounted ? (
+            <Suspense fallback={<div className="h-[60vh] w-full animate-pulse rounded-xl bg-secondary" />}>
+              <ZonesMap
+                zones={allZones}
+                colors={zoneColors}
+                className="h-[60vh] w-full rounded-xl border border-border lg:h-[calc(100vh-12rem)]"
+              />
+            </Suspense>
           ) : (
-            <>
-              <Save className="h-6 w-6" />
-              Confirmar y guardar zonas
-            </>
+            <div className="h-[60vh] w-full animate-pulse rounded-xl bg-secondary" />
           )}
-        </button>
-        {confirmed && remoteSaveStatus !== "idle" && (
-          <p className="flex items-center justify-center gap-1.5 text-sm font-semibold text-muted-foreground">
-            {remoteSaveStatus === "saving" && (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Guardando para consulta desde cualquier dispositivo…
-              </>
+        </section>
+
+        <aside className="flex flex-col gap-5 lg:max-h-[calc(100vh-12rem)] lg:overflow-y-auto lg:pr-1">
+          <section className="space-y-5">
+            <h2 className="text-lg font-bold text-foreground">Zonas por Código Postal</h2>
+            {groups.map((group) => (
+              <ZoneGroupCard
+                key={group.zip}
+                title={`CP ${group.zip}`}
+                group={group}
+                colors={zoneColors}
+                expandedZoneId={expandedZoneId}
+                onToggleExpand={(id) => setExpandedZoneId(expandedZoneId === id ? null : id)}
+                onRename={(zoneId, name) => renameZone(group.zip, zoneId, name)}
+              />
+            ))}
+          </section>
+
+          {pudoGroup && pudoGroup.zones.length > 0 && (
+            <section className="space-y-2">
+              <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
+                <PackageCheck className="h-5 w-5 text-accent" />
+                Ruta PUDO
+              </h2>
+              <ZoneGroupCard
+                title="Ruta PUDO (todos los CP)"
+                group={pudoGroup}
+                colors={zoneColors}
+                expandedZoneId={expandedZoneId}
+                onToggleExpand={(id) => setExpandedZoneId(expandedZoneId === id ? null : id)}
+                onRename={(zoneId, name) => renameZone(pudoGroup.zip, zoneId, name)}
+              />
+            </section>
+          )}
+
+          {unlocated.length > 0 && (
+            <section>
+              <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-foreground">
+                <PackageX className="h-5 w-5 text-destructive" />
+                Sin ubicación — asignar manualmente ({unlocated.length})
+              </h2>
+              <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-border bg-card p-3">
+                {unlocated.map((row) => (
+                  <div key={row.waybill} className="flex justify-between gap-2 text-sm">
+                    <span className="truncate font-semibold text-foreground">{row.waybill}</span>
+                    <span className="truncate text-muted-foreground">
+                      {row.zip ? `CP ${row.zip}` : "Sin CP"} · {row.address || "—"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <div className="space-y-3">
+            <button
+              type="button"
+              onClick={onConfirm}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-5 text-xl font-black uppercase tracking-wide text-primary-foreground transition-opacity"
+            >
+              {confirmed ? (
+                <>
+                  <CheckCircle2 className="h-6 w-6" />
+                  Bloque guardado
+                </>
+              ) : (
+                <>
+                  <Save className="h-6 w-6" />
+                  Confirmar y crear bloque
+                </>
+              )}
+            </button>
+            {confirmed && remoteSaveStatus !== "idle" && (
+              <p className="flex items-center justify-center gap-1.5 text-sm font-semibold text-muted-foreground">
+                {remoteSaveStatus === "saving" && (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Guardando para consulta desde cualquier dispositivo…
+                  </>
+                )}
+                {remoteSaveStatus === "ok" && (
+                  <>
+                    <Cloud className="h-4 w-4 text-success" />
+                    Disponible en /consulta desde cualquier dispositivo
+                  </>
+                )}
+                {remoteSaveStatus === "error" && (
+                  <>
+                    <CloudOff className="h-4 w-4 text-destructive" />
+                    No se pudo guardar en la nube — /consulta no tendrá esta sesión (revisa tu conexión)
+                  </>
+                )}
+              </p>
             )}
-            {remoteSaveStatus === "ok" && (
-              <>
-                <Cloud className="h-4 w-4 text-success" />
-                Disponible en /consulta desde cualquier dispositivo
-              </>
+            {confirmed && (
+              <button
+                type="button"
+                onClick={() => void navigate({ to: "/" })}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-success px-6 py-4 text-lg font-bold text-success-foreground"
+              >
+                <LayoutDashboard className="h-5 w-5" />
+                Ir al Dashboard
+              </button>
             )}
-            {remoteSaveStatus === "error" && (
-              <>
-                <CloudOff className="h-4 w-4 text-destructive" />
-                No se pudo guardar en la nube — /consulta no tendrá esta sesión (revisa tu conexión)
-              </>
+            {confirmed && (
+              <button
+                type="button"
+                onClick={() => void navigate({ to: "/escanear" })}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-4 py-3 font-bold text-foreground"
+              >
+                <ScanLine className="h-5 w-5" />
+                Ir a escanear
+              </button>
             )}
-          </p>
-        )}
-        {confirmed && (
-          <button
-            type="button"
-            onClick={() => void navigate({ to: "/escanear" })}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-success px-6 py-5 text-xl font-black uppercase tracking-wide text-success-foreground"
-          >
-            <ScanLine className="h-6 w-6" />
-            Ir a escanear
-          </button>
-        )}
-        {confirmed && remoteSaveStatus === "ok" && (
-          <button
-            type="button"
-            onClick={() => void navigate({ to: "/consulta" })}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-accent bg-card px-6 py-4 text-lg font-bold text-accent"
-          >
-            <PackageSearch className="h-5 w-5" />
-            Ir a consulta pública
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onBack}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl border-2 border-border bg-card px-6 py-4 text-lg font-bold text-foreground"
-        >
-          <ArrowLeft className="h-5 w-5" />
-          Recalcular
-        </button>
+            {confirmed && remoteSaveStatus === "ok" && (
+              <button
+                type="button"
+                onClick={() => void navigate({ to: "/consulta" })}
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-accent bg-accent/10 px-4 py-3 font-bold text-accent"
+              >
+                <PackageSearch className="h-5 w-5" />
+                Ir a consulta pública
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex w-full items-center justify-center gap-2 rounded-xl border border-border bg-card px-6 py-4 text-lg font-bold text-foreground"
+            >
+              <ArrowLeft className="h-5 w-5" />
+              Recalcular
+            </button>
+          </div>
+        </aside>
       </div>
     </main>
   );
@@ -240,7 +252,7 @@ function ZoneGroupCard({
         {group.zones.map((zone: Zone) => {
           const expanded = expandedZoneId === zone.id;
           return (
-            <div key={zone.id} className="rounded-2xl bg-card p-3 shadow-sm">
+            <div key={zone.id} className="rounded-xl border border-border bg-card p-3">
               <div className="flex items-center gap-3">
                 <span
                   className="h-4 w-4 shrink-0 rounded-full"
@@ -261,7 +273,7 @@ function ZoneGroupCard({
                   type="text"
                   value={zone.name}
                   onChange={(e) => onRename(zone.id, e.target.value)}
-                  className="min-w-0 flex-1 rounded-xl border-2 border-border bg-background px-3 py-2 text-base font-bold text-foreground outline-none focus:border-accent"
+                  className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-base font-bold text-foreground outline-none focus:border-accent"
                 />
                 <span className="shrink-0 rounded-lg bg-accent/15 px-2.5 py-1 text-sm font-black text-foreground">
                   {zone.points.length}
@@ -277,7 +289,7 @@ function ZoneGroupCard({
                 </button>
               </div>
               {expanded && (
-                <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-xl bg-background p-2">
+                <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded-lg bg-background p-2">
                   {zone.points.map((p) => (
                     <div key={p.waybill} className="flex items-center gap-2 text-sm">
                       <span className="w-6 shrink-0 text-right font-black text-accent">{p.stopNumber}</span>

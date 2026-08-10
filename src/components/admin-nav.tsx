@@ -1,9 +1,10 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, Route as RouteIcon, ScanLine } from "lucide-react";
+import { Activity, LayoutDashboard, PlusCircle, ScanLine } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
-  { to: "/" as const, label: "Enrutamiento", icon: RouteIcon },
+  { to: "/" as const, label: "Dashboard", icon: LayoutDashboard },
+  { to: "/nuevo" as const, label: "Nuevo bloque", icon: PlusCircle },
   { to: "/escanear" as const, label: "Escanear", icon: ScanLine },
   { to: "/seguimiento" as const, label: "Seguimiento", icon: Activity },
 ];
@@ -13,7 +14,7 @@ export function AdminNav() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   return (
-    <nav className="mb-6 flex gap-1.5 overflow-x-auto rounded-2xl bg-card p-1.5 shadow-sm">
+    <nav className="mb-6 flex gap-1.5 overflow-x-auto rounded-xl border border-border bg-card p-1.5">
       {NAV_ITEMS.map((item) => {
         const active = pathname === item.to;
         const Icon = item.icon;

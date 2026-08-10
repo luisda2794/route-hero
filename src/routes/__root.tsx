@@ -83,7 +83,7 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content:
           "App para repartidores: sube el ePOD del día, agrupa paquetes por zonas y escanea waybills en almacén.",
       },
-      { name: "theme-color", content: "#0b1a33" },
+      { name: "theme-color", content: "#2563eb" },
       { property: "og:title", content: "RutaFacil — Zonas de reparto y escaneo" },
       {
         property: "og:description",
@@ -94,6 +94,12 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { name: "twitter:site", content: "@Lovable" },
     ],
     links: [
+      { rel: "preconnect", href: "https://fonts.googleapis.com" },
+      { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap",
+      },
       {
         rel: "stylesheet",
         href: appCss,

@@ -333,19 +333,42 @@ export function buildZonesByZip(
 }
 
 /**
- * Distinct hue per CP (golden-angle spacing keeps hues well spread no matter
- * how many CPs there are), distinct lightness per zone within that CP — so
- * zones from the same CP read as a family of tones at a glance.
+ * Fixed, hand-picked palette of visually distinct colors — cycled by
+ * `driverNumber` (mod length) if there are more drivers than colors.
  */
+const DRIVER_COLOR_PALETTE = [
+  "#2563eb", // blue
+  "#16a34a", // green
+  "#ea580c", // orange
+  "#9333ea", // purple
+  "#dc2626", // red
+  "#0d9488", // teal
+  "#db2777", // pink
+  "#d97706", // amber
+  "#0891b2", // cyan
+  "#65a30d", // lime
+  "#7c3aed", // violet
+  "#e11d48", // rose
+];
+
+/**
+ * The palette color for a given driver number — since driver numbers are
+ * global and never reset, the same driver always gets the same color across
+ * every view (Dashboard, Paso 3, the "Por conductor" list in Seguimiento...),
+ * not just within a single render.
+ */
+export function colorForDriverNumber(driverNumber: number): string {
+  const idx = Math.max(0, driverNumber - 1) % DRIVER_COLOR_PALETTE.length;
+  return DRIVER_COLOR_PALETTE[idx] ?? DRIVER_COLOR_PALETTE[0]!;
+}
+
+/** Colors every zone by its `driverNumber` (see `colorForDriverNumber`). */
 export function assignZoneColors(groups: ZipGroup[]): Record<string, string> {
   const colors: Record<string, string> = {};
-  groups.forEach((group, groupIdx) => {
-    const hue = (groupIdx * 137.508) % 360;
-    const zonesInGroup = group.zones.length;
-    group.zones.forEach((zone, zoneIdx) => {
-      const lightness = zonesInGroup <= 1 ? 48 : 36 + (zoneIdx / (zonesInGroup - 1)) * 26;
-      colors[zone.id] = `hsl(${hue.toFixed(1)} 72% ${lightness.toFixed(1)}%)`;
-    });
-  });
+  for (const group of groups) {
+    for (const zone of group.zones) {
+      colors[zone.id] = colorForDriverNumber(zone.driverNumber);
+    }
+  }
   return colors;
 }
