@@ -23,7 +23,6 @@ import {
 } from "@/lib/blocks";
 import { colorForDriverNumber, type ZipGroup } from "@/lib/clustering";
 import { driverProgressFor, type DriverStop } from "@/lib/driver";
-import { BarcodeScanner } from "@/components/barcode-scanner";
 import { AdminNav } from "@/components/admin-nav";
 import { usePollRemoteSync } from "@/hooks/use-poll-remote-sync";
 
@@ -35,7 +34,7 @@ export const Route = createFileRoute("/conductor/$driverNumber")({
       { title: "RutaFacil — Mis paradas" },
       {
         name: "description",
-        content: "Escanea o toca cada parada para marcarla como entregada o fallada.",
+        content: "Toca cada parada, o escribe el waybill, para marcarla como entregada o fallada.",
       },
     ],
   }),
@@ -49,6 +48,13 @@ type ScanOutcome =
 
 function playFeedback(kind: "success" | "warning" | "error") {
   navigator.vibrate?.(kind === "success" ? 80 : kind === "warning" ? [60, 40, 60] : 200);
+}
+
+/** Google Maps deep link — opens turn-by-turn directions in the app if installed, or maps.google.com otherwise. Prefers coordinates (more precise than the free-text address) and only falls back to the address if they're missing/invalid. */
+function googleMapsUrl(stop: DriverStop): string {
+  const hasCoords = Number.isFinite(stop.lat) && Number.isFinite(stop.lon) && (stop.lat !== 0 || stop.lon !== 0);
+  const destination = hasCoords ? `${stop.lat},${stop.lon}` : stop.address;
+  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
 }
 
 function StatusIcon({ status }: { status: DriverStop["status"] }) {
@@ -168,12 +174,6 @@ function ConductorDetailPage() {
     setOutcome({ kind: "own", stop });
     setJustScannedWaybill(stop.waybill);
     playFeedback("success");
-  }
-
-  function handleDetected(rawText: string) {
-    const text = rawText.trim();
-    if (!text) return;
-    lookupWaybill(text);
   }
 
   function handleManualSubmit(e: FormEvent<HTMLFormElement>) {
@@ -313,14 +313,6 @@ function ConductorDetailPage() {
             />
           </section>
 
-          <section className="mb-4">
-            {mounted ? (
-              <BarcodeScanner onDetected={handleDetected} />
-            ) : (
-              <div className="aspect-[4/3] w-full animate-pulse rounded-2xl bg-secondary" />
-            )}
-          </section>
-
           <form onSubmit={handleManualSubmit} className="mb-6 flex gap-2">
             <input
               type="text"
@@ -337,25 +329,39 @@ function ConductorDetailPage() {
           <h2 className="mb-3 text-lg font-bold text-foreground">Mis paradas ({progress.total})</h2>
           <div className="space-y-2">
             {progress.stops.map((stop) => (
-              <button
+              <div
                 key={stop.waybill}
-                type="button"
-                onClick={() => setOutcome({ kind: "own", stop })}
-                className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left ${
+                className={`flex items-center gap-2 rounded-xl border p-3 ${
                   stop.waybill === justScannedWaybill
                     ? "border-accent bg-accent/10"
                     : "border-border bg-card"
                 }`}
               >
-                <StatusIcon status={stop.status} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-bold text-foreground">
-                    Parada {stop.stopNumber} · CP {stop.zip}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">{stop.address || "—"}</p>
-                  <p className="truncate text-xs text-muted-foreground">{stop.waybill}</p>
-                </div>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setOutcome({ kind: "own", stop })}
+                  className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                >
+                  <StatusIcon status={stop.status} />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-foreground">
+                      Parada {stop.stopNumber} · CP {stop.zip}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">{stop.address || "—"}</p>
+                    <p className="truncate text-xs text-muted-foreground">{stop.waybill}</p>
+                  </div>
+                </button>
+                <a
+                  href={googleMapsUrl(stop)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={(e) => e.stopPropagation()}
+                  aria-label={`Ir a la parada ${stop.stopNumber} en Google Maps`}
+                  className="flex shrink-0 items-center justify-center rounded-lg bg-secondary p-2.5 text-foreground"
+                >
+                  <Navigation className="h-5 w-5" />
+                </a>
+              </div>
             ))}
           </div>
         </>
