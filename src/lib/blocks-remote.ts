@@ -78,7 +78,12 @@ export async function saveBlockRemote(block: RoutingBlock): Promise<void> {
 }
 
 export function deleteBlockRemote(id: string): void {
-  void supabase.from(BLOCKS_TABLE).delete().eq("id", id);
+  // El query builder es perezoso: hay que encadenar .then() para que se ejecute.
+  void supabase
+    .from(BLOCKS_TABLE)
+    .delete()
+    .eq("id", id)
+    .then(() => undefined);
 }
 
 /** Lee el bloque remoto, aplica el cambio sobre su jsonb y lo vuelve a guardar. */
