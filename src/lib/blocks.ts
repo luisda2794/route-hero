@@ -1,5 +1,7 @@
 import type { Zone, ZipGroup } from "./clustering";
 import { buildAssignments, type SavedAssignments } from "./assignment";
+import type { ClientCategory } from "./client-category";
+import type { IncidentStats } from "./incidents";
 import {
   addDeliveryRemote,
   addScanRemote,
@@ -8,6 +10,9 @@ import {
   resetScanRemote,
   saveBlockRemote,
 } from "./blocks-remote";
+
+/** Client classification + incident history for one waybill, computed once at block creation from the day/historical ePOD uploads. */
+export type PackageMeta = { clientCategory: ClientCategory } & IncidentStats;
 
 export type ScanRecord = { scannedAt: string };
 export type ScanState = { scanned: Record<string, ScanRecord> };
@@ -36,6 +41,8 @@ export type RoutingBlock = {
   scanState: ScanState;
   /** Optional — blocks saved before this field existed simply have none marked yet. */
   deliveryState?: DeliveryState;
+  /** Optional — blocks saved before this field existed have no classification/incident data. Keyed by waybill. */
+  packageMeta?: Record<string, PackageMeta>;
 };
 
 type BlocksStore = { blocks: RoutingBlock[]; activeBlockId: string | null };
@@ -117,6 +124,7 @@ export async function createBlock(
   groups: ZipGroup[],
   pudoGroup: ZipGroup | null,
   name?: string,
+  packageMeta?: Record<string, PackageMeta>,
 ): Promise<RoutingBlock> {
   const now = new Date();
   const block: RoutingBlock = {
@@ -127,6 +135,7 @@ export async function createBlock(
     pudoGroup,
     scanState: { scanned: {} },
     deliveryState: { marked: {} },
+    packageMeta: packageMeta ?? {},
   };
   const store = loadStore();
   const blocks = [block, ...store.blocks].slice(0, MAX_BLOCKS);
@@ -222,6 +231,11 @@ export function resetScanState(id: string): ScanState {
 /** A block's delivery state, defaulting to empty for blocks saved before this field existed. */
 export function deliveryStateOf(block: RoutingBlock): DeliveryState {
   return block.deliveryState ?? { marked: {} };
+}
+
+/** A block's package classification/incident data, defaulting to empty for blocks saved before this field existed. */
+export function packageMetaOf(block: RoutingBlock): Record<string, PackageMeta> {
+  return block.packageMeta ?? {};
 }
 
 /** Records a driver's delivery outcome for one waybill and pushes it to the cloud — returns the updated state, or null if the block doesn't exist. */

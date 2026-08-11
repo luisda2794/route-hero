@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import type { DeliveryState, DeliveryStatus, RoutingBlock, ScanState } from "./blocks";
+import type { DeliveryState, DeliveryStatus, PackageMeta, RoutingBlock, ScanState } from "./blocks";
 import type { ZipGroup } from "./clustering";
 
 /** Contenido serializado de un bloque dentro de la columna `datos` (jsonb). */
@@ -8,6 +8,7 @@ type BlockDatos = {
   pudoGroup: ZipGroup | null;
   scanState: ScanState;
   deliveryState: DeliveryState;
+  packageMeta: Record<string, PackageMeta>;
 };
 
 type BlockRow = {
@@ -29,6 +30,7 @@ function toBlock(row: BlockRow): RoutingBlock {
     pudoGroup: datos.pudoGroup ?? null,
     scanState: datos.scanState ?? { scanned: {} },
     deliveryState: datos.deliveryState ?? { marked: {} },
+    packageMeta: datos.packageMeta ?? {},
   };
 }
 
@@ -38,6 +40,7 @@ function toDatos(block: RoutingBlock): BlockDatos {
     pudoGroup: block.pudoGroup,
     scanState: block.scanState,
     deliveryState: block.deliveryState ?? { marked: {} },
+    packageMeta: block.packageMeta ?? {},
   };
 }
 

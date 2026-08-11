@@ -8,7 +8,10 @@ export type ColumnKey =
   | "lat"
   | "lon"
   | "taskDate"
-  | "deliveryType";
+  | "deliveryType"
+  | "exceptionDetail"
+  | "marketPlaceName"
+  | "sellerName";
 
 /** Bilingual (ES/EN) header aliases for the Cainiao ePOD export. */
 export const COLUMN_ALIASES: Record<ColumnKey, string[]> = {
@@ -44,6 +47,9 @@ export const COLUMN_ALIASES: Record<ColumnKey, string[]> = {
   ],
   taskDate: ["fecha de la tarea", "fecha tarea", "task date", "fecha"],
   deliveryType: ["tipo de entrega", "delivery type", "tipo entrega"],
+  exceptionDetail: ["detalles de la excepcion", "detalle de la excepcion", "exception detail", "detalles excepcion"],
+  marketPlaceName: ["nombre del mercado", "market place name", "marketplace name", "nombre mercado"],
+  sellerName: ["nombre del vendedor", "seller name", "nombre vendedor"],
 };
 
 export const REQUIRED_COLUMNS: ColumnKey[] = ["waybill", "taskStatus", "taskDate"];
@@ -90,6 +96,10 @@ export type EpodRow = {
   taskDate: string;
   /** Raw "Tipo de Entrega" value, e.g. "TO_DOOR" or "PUDO". Empty if the column wasn't found. */
   deliveryType: string;
+  /** Non-empty means this row recorded a delivery exception — used to count incidents per waybill. */
+  exceptionDetail: string;
+  marketPlaceName: string;
+  sellerName: string;
 };
 
 export type EpodParseResult = {
@@ -193,6 +203,9 @@ export async function parseEpodFile(file: File): Promise<EpodParseResult> {
     lon: columns.lon ? toNumber(r[columns.lon]) : null,
     taskDate: columns.taskDate ? toDateKey(r[columns.taskDate]) : "",
     deliveryType: String(columns.deliveryType ? (r[columns.deliveryType] ?? "") : "").trim(),
+    exceptionDetail: String(columns.exceptionDetail ? (r[columns.exceptionDetail] ?? "") : "").trim(),
+    marketPlaceName: String(columns.marketPlaceName ? (r[columns.marketPlaceName] ?? "") : "").trim(),
+    sellerName: String(columns.sellerName ? (r[columns.sellerName] ?? "") : "").trim(),
   })).filter((r) => r.waybill);
 
   const dates = rows.map((r) => r.taskDate).filter(Boolean).sort();

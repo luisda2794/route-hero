@@ -23,6 +23,8 @@ import {
 } from "@/lib/blocks";
 import { colorForDriverNumber, type ZipGroup } from "@/lib/clustering";
 import { driverProgressFor, type DriverStop } from "@/lib/driver";
+import { CLIENT_CATEGORY_COLORS, CLIENT_CATEGORY_LABELS } from "@/lib/client-category";
+import { googleMapsUrl } from "@/lib/geo";
 import { AdminNav } from "@/components/admin-nav";
 import { usePollRemoteSync } from "@/hooks/use-poll-remote-sync";
 
@@ -50,11 +52,15 @@ function playFeedback(kind: "success" | "warning" | "error") {
   navigator.vibrate?.(kind === "success" ? 80 : kind === "warning" ? [60, 40, 60] : 200);
 }
 
-/** Google Maps deep link — opens turn-by-turn directions in the app if installed, or maps.google.com otherwise. Prefers coordinates (more precise than the free-text address) and only falls back to the address if they're missing/invalid. */
-function googleMapsUrl(stop: DriverStop): string {
-  const hasCoords = Number.isFinite(stop.lat) && Number.isFinite(stop.lon) && (stop.lat !== 0 || stop.lon !== 0);
-  const destination = hasCoords ? `${stop.lat},${stop.lon}` : stop.address;
-  return `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(destination)}`;
+function CategoryBadge({ category }: { category: DriverStop["clientCategory"] }) {
+  return (
+    <span
+      className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-white"
+      style={{ backgroundColor: CLIENT_CATEGORY_COLORS[category] }}
+    >
+      {CLIENT_CATEGORY_LABELS[category]}
+    </span>
+  );
 }
 
 function StatusIcon({ status }: { status: DriverStop["status"] }) {
@@ -332,9 +338,11 @@ function ConductorDetailPage() {
               <div
                 key={stop.waybill}
                 className={`flex items-center gap-2 rounded-xl border p-3 ${
-                  stop.waybill === justScannedWaybill
-                    ? "border-accent bg-accent/10"
-                    : "border-border bg-card"
+                  stop.count >= 2
+                    ? "border-destructive bg-destructive/5"
+                    : stop.waybill === justScannedWaybill
+                      ? "border-accent bg-accent/10"
+                      : "border-border bg-card"
                 }`}
               >
                 <button
@@ -344,11 +352,24 @@ function ConductorDetailPage() {
                 >
                   <StatusIcon status={stop.status} />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-bold text-foreground">
-                      Parada {stop.stopNumber} · CP {stop.zip}
-                    </p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="truncate text-sm font-bold text-foreground">
+                        Parada {stop.stopNumber} · CP {stop.zip}
+                      </p>
+                      {stop.count >= 2 && (
+                        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label="2 o más incidencias" />
+                      )}
+                    </div>
                     <p className="truncate text-xs text-muted-foreground">{stop.address || "—"}</p>
-                    <p className="truncate text-xs text-muted-foreground">{stop.waybill}</p>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <p className="truncate text-xs text-muted-foreground">{stop.waybill}</p>
+                      <CategoryBadge category={stop.clientCategory} />
+                      {stop.count > 0 && (
+                        <span className="shrink-0 text-[10px] font-bold text-destructive">
+                          {stop.count} incid.
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
                 <a

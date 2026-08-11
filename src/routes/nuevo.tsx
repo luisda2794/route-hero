@@ -1,6 +1,14 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useRef, useState } from "react";
-import { Upload, FileSpreadsheet, CheckCircle2, AlertTriangle, Loader2, PackageSearch } from "lucide-react";
+import { useMemo, useRef, useState } from "react";
+import {
+  Upload,
+  FileSpreadsheet,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
+  PackageSearch,
+  History,
+} from "lucide-react";
 import {
   parseEpodFile,
   summarizeByZipAndType,
@@ -10,7 +18,9 @@ import {
 } from "@/lib/epod";
 import { buildZonesByZip, type DriverType, type ZipGroup } from "@/lib/clustering";
 import { buildAssignments, saveAssignmentsRemote } from "@/lib/assignment";
-import { createBlock } from "@/lib/blocks";
+import { createBlock, type PackageMeta } from "@/lib/blocks";
+import { classifyClient } from "@/lib/client-category";
+import { buildIncidentStats } from "@/lib/incidents";
 import { ZonesPreview } from "@/components/zones-preview";
 import { AdminNav } from "@/components/admin-nav";
 
@@ -42,6 +52,9 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   lon: "Longitud",
   taskDate: "Fecha de la tarea",
   deliveryType: "Tipo de entrega",
+  exceptionDetail: "Detalles de la Excepción",
+  marketPlaceName: "Nombre del mercado",
+  sellerName: "Nombre del vendedor",
 };
 
 function SetupPage() {
@@ -50,6 +63,13 @@ function SetupPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<EpodParseResult | null>(null);
+
+  const historyInputRef = useRef<HTMLInputElement>(null);
+  const [historyDragging, setHistoryDragging] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyResult, setHistoryResult] = useState<EpodParseResult | null>(null);
+
   const [driversByZip, setDriversByZip] = useState<Record<string, string>>({});
   const [driverTypesByZip, setDriverTypesByZip] = useState<Record<string, DriverType[]>>({});
   const [pudoEnabled, setPudoEnabled] = useState(false);
@@ -81,6 +101,39 @@ function SetupPage() {
       setLoading(false);
     }
   }
+
+  async function handleHistoryFile(file: File | undefined) {
+    if (!file) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const parsed = await parseEpodFile(file);
+      setHistoryResult(parsed);
+    } catch (e) {
+      setHistoryResult(null);
+      setHistoryError(e instanceof Error ? e.message : "No se pudo leer el archivo.");
+    } finally {
+      setHistoryLoading(false);
+    }
+  }
+
+  const packageMeta: Record<string, PackageMeta> = useMemo(() => {
+    if (!result) return {};
+    const incidents = buildIncidentStats(result.inDeliveryRows, historyResult?.rows ?? null);
+    const meta: Record<string, PackageMeta> = {};
+    for (const row of result.inDeliveryRows) {
+      meta[row.waybill] = {
+        clientCategory: classifyClient(row.marketPlaceName, row.sellerName),
+        ...incidents[row.waybill]!,
+      };
+    }
+    return meta;
+  }, [result, historyResult]);
+
+  const repeatIncidentCount = useMemo(
+    () => Object.values(packageMeta).filter((m) => m.count >= 2).length,
+    [packageMeta],
+  );
 
   const total = result?.totalToRoute ?? 0;
   const zipSummary = result ? summarizeByZipAndType(result.inDeliveryRows) : [];
@@ -124,7 +177,7 @@ function SetupPage() {
 
   async function handleConfirm(name: string) {
     setCreatingBlock(true);
-    await createBlock(zipGroups, pudoGroup, name);
+    await createBlock(zipGroups, pudoGroup, name, packageMeta);
     setCreatingBlock(false);
     const assignments = buildAssignments(pudoGroup ? [...zipGroups, pudoGroup] : zipGroups);
     setConfirmed(true);
@@ -171,13 +224,67 @@ function SetupPage() {
         <p className="text-xs font-bold uppercase tracking-[0.2em] text-accent">Nuevo bloque · Paso 1 de 4</p>
         <h1 className="mt-1 text-4xl font-black tracking-tight text-foreground">RUTAFACIL</h1>
         <p className="mt-2 text-base text-muted-foreground">
-          Sube el ePOD del día. Al confirmar las zonas se crea un nuevo bloque de enrutamiento y se
-          guarda también una copia en la nube para la consulta pública.
+          Sube el ePOD del día (y, opcionalmente, un histórico). Al confirmar las zonas se crea un
+          nuevo bloque de enrutamiento y se guarda también una copia en la nube para la consulta pública.
         </p>
       </header>
 
       <section className="mb-6">
-        <h2 className="mb-3 text-lg font-bold text-foreground">1. ePOD del día</h2>
+        <h2 className="mb-3 text-lg font-bold text-foreground">1. ePOD histórico (opcional)</h2>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Un export que cubra varios días (Cainiao suele traer ~30 días). Solo se usa para contar
+          incidencias repetidas por waybill — no cambia el enrutamiento.
+        </p>
+        <button
+          type="button"
+          onClick={() => historyInputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setHistoryDragging(true);
+          }}
+          onDragLeave={() => setHistoryDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setHistoryDragging(false);
+            void handleHistoryFile(e.dataTransfer.files?.[0]);
+          }}
+          className={`flex w-full flex-col items-center gap-3 rounded-2xl border border-dashed px-6 py-8 text-center transition-colors ${
+            historyDragging ? "border-accent bg-accent/10" : "border-border bg-card"
+          }`}
+        >
+          {historyLoading ? (
+            <Loader2 className="h-8 w-8 animate-spin text-accent" />
+          ) : historyResult ? (
+            <FileSpreadsheet className="h-8 w-8 text-success" />
+          ) : (
+            <History className="h-8 w-8 text-muted-foreground" />
+          )}
+          <span className="text-base font-bold text-foreground">
+            {historyResult ? historyResult.fileName : "Toca o arrastra el histórico (opcional)"}
+          </span>
+          <span className="text-sm text-muted-foreground">
+            {historyResult
+              ? `${historyResult.rows.length} filas · ${historyResult.latestDate || "—"}`
+              : "EPOD_TASK_LIST_V2… (.xlsx / .xls / .csv)"}
+          </span>
+        </button>
+        <input
+          ref={historyInputRef}
+          type="file"
+          accept=".xlsx,.xls,.csv"
+          className="hidden"
+          onChange={(e) => void handleHistoryFile(e.target.files?.[0])}
+        />
+        {historyError && (
+          <div className="mt-3 flex items-start gap-2 rounded-xl bg-destructive/10 p-3 text-sm font-semibold text-destructive">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0" />
+            <span>{historyError}</span>
+          </div>
+        )}
+      </section>
+
+      <section className="mb-6">
+        <h2 className="mb-3 text-lg font-bold text-foreground">2. ePOD del día</h2>
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
@@ -231,7 +338,18 @@ function SetupPage() {
               <Stat label="Filas en archivo" value={String(result.rows.length)} />
               <Stat label="A enrutar" value={String(result.totalToRoute)} highlight />
               <Stat label="Sin coordenadas" value={String(result.withoutCoords)} />
+              <Stat label="Con 2+ incidencias" value={String(repeatIncidentCount)} />
             </div>
+
+            {!historyResult && (
+              <div className="flex items-start gap-2 rounded-xl bg-pending/10 p-3 text-sm font-semibold text-pending">
+                <History className="mt-0.5 h-5 w-5 shrink-0" />
+                <span>
+                  Sube un ePOD Histórico para detectar paquetes con incidencias repetidas — por ahora
+                  el conteo es solo del día de hoy (menos preciso).
+                </span>
+              </div>
+            )}
 
             <div>
               <p className="mb-2 text-xs font-bold uppercase tracking-wide text-muted-foreground">
@@ -275,7 +393,7 @@ function SetupPage() {
 
       {zipSummary.length > 0 && (
         <section className="mb-6 space-y-3">
-          <h2 className="text-lg font-bold text-foreground">2. Áreas por Código Postal</h2>
+          <h2 className="text-lg font-bold text-foreground">3. Áreas por Código Postal</h2>
           <p className="text-sm text-muted-foreground">
             Deja en blanco o en 0 los CP que no repartes hoy — no se les generarán áreas. El
             número de áreas aplica solo a los paquetes a domicilio.
