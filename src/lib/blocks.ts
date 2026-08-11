@@ -141,6 +141,8 @@ export function renameBlock(id: string, name: string): void {
   const store = loadStore();
   const blocks = store.blocks.map((b) => (b.id === id ? { ...b, name: trimmed } : b));
   saveStore({ ...store, blocks });
+  const renamed = blocks.find((b) => b.id === id);
+  if (renamed) void saveBlockRemote(renamed);
 }
 
 /** Renames one zone (identified by its driver number) within an already-saved block — e.g. the driver's own name from the /conductor panel. */

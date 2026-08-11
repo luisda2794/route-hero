@@ -41,6 +41,7 @@ const COLUMN_LABELS: Record<ColumnKey, string> = {
   lat: "Latitud",
   lon: "Longitud",
   taskDate: "Fecha de la tarea",
+  deliveryType: "Tipo de entrega",
 };
 
 function SetupPage() {

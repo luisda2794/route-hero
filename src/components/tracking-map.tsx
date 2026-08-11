@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
+import L from "leaflet";
 import type { LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { TrackedPackage } from "@/lib/tracking";
@@ -25,7 +26,7 @@ function FitBounds({ points }: { points: LatLngExpression[] }) {
   const map = useMap();
   useEffect(() => {
     if (!points.length) return;
-    map.fitBounds(points, { padding: [24, 24] });
+    map.fitBounds(L.latLngBounds(points), { padding: [24, 24] });
   }, [map, points]);
   return null;
 }
