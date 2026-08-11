@@ -1,83 +1,110 @@
-import { functionUrl, SUPABASE_ANON_KEY } from "./supabase-config";
-import type { DeliveryStatus, RoutingBlock } from "./blocks";
+import { supabase } from "@/integrations/supabase/client";
+import type { DeliveryState, DeliveryStatus, RoutingBlock, ScanState } from "./blocks";
+import type { ZipGroup } from "./clustering";
 
-const HEADERS = {
-  "Content-Type": "application/json",
-  apikey: SUPABASE_ANON_KEY,
-  Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+/** Contenido serializado de un bloque dentro de la columna `datos` (jsonb). */
+type BlockDatos = {
+  groups: ZipGroup[];
+  pudoGroup: ZipGroup | null;
+  scanState: ScanState;
+  deliveryState: DeliveryState;
 };
 
-/**
- * Every block the team has saved from any device, or null on any failure
- * (offline, function down, etc.) — callers keep using their local cache
- * when this happens, never wiping it out over a transient network error.
- */
-export async function fetchRemoteBlocks(): Promise<RoutingBlock[] | null> {
-  try {
-    const res = await fetch(functionUrl("list-blocks"), { headers: HEADERS });
-    if (!res.ok) return null;
-    const body = (await res.json()) as { blocks: RoutingBlock[] };
-    return body.blocks;
-  } catch {
-    return null;
-  }
+type BlockRow = {
+  id: string;
+  nombre: string;
+  creado_en: string;
+  datos: unknown;
+};
+
+export const BLOCKS_TABLE = "rutas_bloques";
+
+function toBlock(row: BlockRow): RoutingBlock {
+  const datos = (row.datos ?? {}) as Partial<BlockDatos>;
+  return {
+    id: row.id,
+    createdAt: row.creado_en,
+    name: row.nombre,
+    groups: datos.groups ?? [],
+    pudoGroup: datos.pudoGroup ?? null,
+    scanState: datos.scanState ?? { scanned: {} },
+    deliveryState: datos.deliveryState ?? { marked: {} },
+  };
 }
 
-/** Best-effort — the local block is already saved regardless of the outcome. */
+function toDatos(block: RoutingBlock): BlockDatos {
+  return {
+    groups: block.groups,
+    pudoGroup: block.pudoGroup,
+    scanState: block.scanState,
+    deliveryState: block.deliveryState ?? { marked: {} },
+  };
+}
+
+/**
+ * Todos los bloques guardados por el equipo (más recientes primero), o null
+ * si la petición falla (sin conexión, etc.) — quien llame conserva su caché
+ * local en ese caso, nunca la borra por un error de red pasajero.
+ */
+export async function fetchRemoteBlocks(): Promise<RoutingBlock[] | null> {
+  const { data, error } = await supabase
+    .from(BLOCKS_TABLE)
+    .select("id, nombre, creado_en, datos")
+    .order("creado_en", { ascending: false });
+  if (error || !data) return null;
+  return (data as BlockRow[]).map(toBlock);
+}
+
+/** Un bloque concreto, o null si no existe / falla la petición. */
+export async function fetchRemoteBlock(id: string): Promise<RoutingBlock | null> {
+  const { data, error } = await supabase
+    .from(BLOCKS_TABLE)
+    .select("id, nombre, creado_en, datos")
+    .eq("id", id)
+    .maybeSingle();
+  if (error || !data) return null;
+  return toBlock(data as BlockRow);
+}
+
+/** Inserta o actualiza el bloque completo. Best-effort: el bloque local ya está guardado. */
 export async function saveBlockRemote(block: RoutingBlock): Promise<void> {
-  try {
-    await fetch(functionUrl("save-block"), {
-      method: "POST",
-      headers: HEADERS,
-      body: JSON.stringify({
-        id: block.id,
-        createdAt: block.createdAt,
-        name: block.name,
-        groups: block.groups,
-        pudoGroup: block.pudoGroup,
-      }),
-    });
-  } catch {
-    // best-effort
-  }
+  await supabase.from(BLOCKS_TABLE).upsert({
+    id: block.id,
+    nombre: block.name,
+    creado_en: block.createdAt,
+    actualizado_en: new Date().toISOString(),
+    datos: toDatos(block) as never,
+  });
 }
 
 export function deleteBlockRemote(id: string): void {
-  void fetch(functionUrl("delete-block"), {
-    method: "POST",
-    headers: HEADERS,
-    body: JSON.stringify({ id }),
-  }).catch(() => {
-    // best-effort
-  });
+  void supabase.from(BLOCKS_TABLE).delete().eq("id", id);
+}
+
+/** Lee el bloque remoto, aplica el cambio sobre su jsonb y lo vuelve a guardar. */
+async function mutateDatos(id: string, apply: (datos: BlockDatos) => BlockDatos): Promise<void> {
+  const block = await fetchRemoteBlock(id);
+  if (!block) return;
+  await supabase
+    .from(BLOCKS_TABLE)
+    .update({ datos: apply(toDatos(block)) as never, actualizado_en: new Date().toISOString() })
+    .eq("id", id);
 }
 
 export function addScanRemote(blockId: string, waybill: string, at: string): void {
-  void fetch(functionUrl("update-block-state"), {
-    method: "POST",
-    headers: HEADERS,
-    body: JSON.stringify({ blockId, action: "add-scan", waybill, at }),
-  }).catch(() => {
-    // best-effort
-  });
+  void mutateDatos(blockId, (d) => ({
+    ...d,
+    scanState: { scanned: { ...d.scanState.scanned, [waybill]: { scannedAt: at } } },
+  }));
 }
 
 export function resetScanRemote(blockId: string): void {
-  void fetch(functionUrl("update-block-state"), {
-    method: "POST",
-    headers: HEADERS,
-    body: JSON.stringify({ blockId, action: "reset-scan" }),
-  }).catch(() => {
-    // best-effort
-  });
+  void mutateDatos(blockId, (d) => ({ ...d, scanState: { scanned: {} } }));
 }
 
 export function addDeliveryRemote(blockId: string, waybill: string, status: DeliveryStatus, at: string): void {
-  void fetch(functionUrl("update-block-state"), {
-    method: "POST",
-    headers: HEADERS,
-    body: JSON.stringify({ blockId, action: "add-delivery", waybill, status, at }),
-  }).catch(() => {
-    // best-effort
-  });
+  void mutateDatos(blockId, (d) => ({
+    ...d,
+    deliveryState: { marked: { ...d.deliveryState.marked, [waybill]: { status, markedAt: at } } },
+  }));
 }
