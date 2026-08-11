@@ -10,33 +10,115 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as ConsultaRouteImport } from './routes/consulta'
+import { Route as EscanearRouteImport } from './routes/escanear'
+import { Route as NuevoRouteImport } from './routes/nuevo'
+import { Route as SeguimientoRouteImport } from './routes/seguimiento'
+import { Route as ConductorIndexRouteImport } from './routes/conductor/index'
+import { Route as ConductorDriverNumberRouteImport } from './routes/conductor/$driverNumber'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ConsultaRoute = ConsultaRouteImport.update({
+  id: '/consulta',
+  path: '/consulta',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EscanearRoute = EscanearRouteImport.update({
+  id: '/escanear',
+  path: '/escanear',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NuevoRoute = NuevoRouteImport.update({
+  id: '/nuevo',
+  path: '/nuevo',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SeguimientoRoute = SeguimientoRouteImport.update({
+  id: '/seguimiento',
+  path: '/seguimiento',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConductorIndexRoute = ConductorIndexRouteImport.update({
+  id: '/conductor/',
+  path: '/conductor/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ConductorDriverNumberRoute = ConductorDriverNumberRouteImport.update({
+  id: '/conductor/$driverNumber',
+  path: '/conductor/$driverNumber',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/consulta': typeof ConsultaRoute
+  '/escanear': typeof EscanearRoute
+  '/nuevo': typeof NuevoRoute
+  '/seguimiento': typeof SeguimientoRoute
+  '/conductor/$driverNumber': typeof ConductorDriverNumberRoute
+  '/conductor/': typeof ConductorIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/consulta': typeof ConsultaRoute
+  '/escanear': typeof EscanearRoute
+  '/nuevo': typeof NuevoRoute
+  '/seguimiento': typeof SeguimientoRoute
+  '/conductor/$driverNumber': typeof ConductorDriverNumberRoute
+  '/conductor': typeof ConductorIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/consulta': typeof ConsultaRoute
+  '/escanear': typeof EscanearRoute
+  '/nuevo': typeof NuevoRoute
+  '/seguimiento': typeof SeguimientoRoute
+  '/conductor/$driverNumber': typeof ConductorDriverNumberRoute
+  '/conductor/': typeof ConductorIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/consulta'
+    | '/escanear'
+    | '/nuevo'
+    | '/seguimiento'
+    | '/conductor/$driverNumber'
+    | '/conductor/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/consulta'
+    | '/escanear'
+    | '/nuevo'
+    | '/seguimiento'
+    | '/conductor/$driverNumber'
+    | '/conductor'
+  id:
+    | '__root__'
+    | '/'
+    | '/consulta'
+    | '/escanear'
+    | '/nuevo'
+    | '/seguimiento'
+    | '/conductor/$driverNumber'
+    | '/conductor/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  ConsultaRoute: typeof ConsultaRoute
+  EscanearRoute: typeof EscanearRoute
+  NuevoRoute: typeof NuevoRoute
+  SeguimientoRoute: typeof SeguimientoRoute
+  ConductorDriverNumberRoute: typeof ConductorDriverNumberRoute
+  ConductorIndexRoute: typeof ConductorIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,12 +130,70 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/consulta': {
+      id: '/consulta'
+      path: '/consulta'
+      fullPath: '/consulta'
+      preLoaderRoute: typeof ConsultaRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/escanear': {
+      id: '/escanear'
+      path: '/escanear'
+      fullPath: '/escanear'
+      preLoaderRoute: typeof EscanearRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/nuevo': {
+      id: '/nuevo'
+      path: '/nuevo'
+      fullPath: '/nuevo'
+      preLoaderRoute: typeof NuevoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/seguimiento': {
+      id: '/seguimiento'
+      path: '/seguimiento'
+      fullPath: '/seguimiento'
+      preLoaderRoute: typeof SeguimientoRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/conductor/': {
+      id: '/conductor/'
+      path: '/conductor'
+      fullPath: '/conductor/'
+      preLoaderRoute: typeof ConductorIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/conductor/$driverNumber': {
+      id: '/conductor/$driverNumber'
+      path: '/conductor/$driverNumber'
+      fullPath: '/conductor/$driverNumber'
+      preLoaderRoute: typeof ConductorDriverNumberRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  ConsultaRoute: ConsultaRoute,
+  EscanearRoute: EscanearRoute,
+  NuevoRoute: NuevoRoute,
+  SeguimientoRoute: SeguimientoRoute,
+  ConductorDriverNumberRoute: ConductorDriverNumberRoute,
+  ConductorIndexRoute: ConductorIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
