@@ -14,7 +14,30 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      rutas_bloques: {
+        Row: {
+          actualizado_en: string
+          creado_en: string
+          datos: Json
+          id: string
+          nombre: string
+        }
+        Insert: {
+          actualizado_en?: string
+          creado_en?: string
+          datos: Json
+          id?: string
+          nombre: string
+        }
+        Update: {
+          actualizado_en?: string
+          creado_en?: string
+          datos?: Json
+          id?: string
+          nombre?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
