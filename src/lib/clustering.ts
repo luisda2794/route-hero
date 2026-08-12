@@ -1,4 +1,9 @@
 import { NO_ZIP_LABEL, isPudoDelivery, type EpodRow } from "./epod";
+import { haversineDistance } from "./geo-math";
+import { buildVrpRoutes, DEFAULT_VRP_SETTINGS, type VrpSettings } from "./vrp";
+
+export { haversineDistance } from "./geo-math";
+export { DEFAULT_VRP_SETTINGS, type VrpSettings } from "./vrp";
 
 export type ZonePoint = {
   waybill: string;
@@ -24,6 +29,10 @@ export type Zone = {
   driverNumber: number;
   name: string;
   points: RoutedPoint[];
+  /** Estimated total route duration in minutes (travel + stop time) — set by the VRP engine, absent for the K-means fallback. */
+  estimatedMinutes?: number;
+  /** True when this zone exceeds its configured time/package capacity — set by the VRP engine. */
+  overCapacity?: boolean;
 };
 
 /** One CP's worth of home-delivery zones, or the single consolidated PUDO route. */
@@ -38,32 +47,14 @@ export type MultiZipClusterResult = {
   /** The consolidated PUDO route (all CPs pooled together), or null if not requested. */
   pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
+  /** Capacity shortfalls, Andarín stops too far apart, or a note that the VRP engine failed and K-means was used instead. */
+  warnings: string[];
 };
 
 /** Synthetic "CP" label used for the consolidated PUDO route. */
 export const PUDO_LABEL = "PUDO";
 
-const EARTH_RADIUS_KM = 6371;
 const MAX_ITERATIONS = 50;
-
-function toRad(deg: number) {
-  return (deg * Math.PI) / 180;
-}
-
-/** Great-circle distance in km between two lat/lon points. */
-export function haversineDistance(
-  a: { lat: number; lon: number },
-  b: { lat: number; lon: number },
-): number {
-  const dLat = toRad(b.lat - a.lat);
-  const dLon = toRad(b.lon - a.lon);
-  const lat1 = toRad(a.lat);
-  const lat2 = toRad(b.lat);
-  const sinDLat = Math.sin(dLat / 2);
-  const sinDLon = Math.sin(dLon / 2);
-  const h = sinDLat * sinDLat + Math.cos(lat1) * Math.cos(lat2) * sinDLon * sinDLon;
-  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
-}
 
 type Centroid = { lat: number; lon: number };
 
@@ -197,72 +188,107 @@ function splitByCoords(rows: EpodRow[]): { located: ZonePoint[]; unlocated: Epod
 }
 
 /**
- * Clusters `rows` into exactly `driverCount` zones (padded with empty
- * placeholders only if there genuinely weren't enough points to cluster in
- * the first place) and orders each zone's stops by nearest-neighbor.
- * `driverNumber`/`name` are left as placeholders — `buildZonesByZip`
- * assigns the final, globally unique driver number and name once every
- * group's zones are known.
+ * Routes `rows` into exactly `types.length` zones (padded with empty
+ * placeholders only if there genuinely weren't enough points to route in the
+ * first place). Tries the VRP engine (Clarke-Wright construction + 2-opt/Or-opt
+ * local search, respecting time/package capacity) first; if it throws for any
+ * reason, falls back to the simple K-means + nearest-neighbor ordering so the
+ * app never gets stuck — the caller is told via a warning either way.
+ * `driverNumber`/`name` are left as placeholders — `buildZonesByZip` assigns
+ * the final, globally unique driver number and name once every group's zones
+ * are known.
  */
 function clusterIntoZones(
   rows: EpodRow[],
-  driverCount: number,
+  types: DriverType[],
   idPrefix: string,
   zip: string,
   kind: Zone["kind"],
-): { zones: Zone[]; totalPackages: number; unlocated: EpodRow[] } {
+  vrpSettings: VrpSettings,
+): { zones: Zone[]; totalPackages: number; unlocated: EpodRow[]; warnings: string[] } {
   const { located, unlocated } = splitByCoords(rows);
-  const clusters = kmeans(located, driverCount);
+  const driverCount = types.length;
 
-  const zones: Zone[] = clusters.map((points, idx) => ({
+  let routedPoints: RoutedPoint[][];
+  let estimatedMinutes: (number | undefined)[];
+  let overCapacity: (boolean | undefined)[];
+  let warnings: string[];
+
+  try {
+    const result = buildVrpRoutes(located, types, vrpSettings);
+    routedPoints = result.routes.map((r) => r.points);
+    estimatedMinutes = result.routes.map((r) => r.estimatedMinutes);
+    overCapacity = result.routes.map((r) => r.overCapacity);
+    warnings = result.warnings;
+  } catch {
+    const clusters = kmeans(located, driverCount);
+    routedPoints = clusters.map(orderStopsNearestNeighbor);
+    estimatedMinutes = clusters.map(() => undefined);
+    overCapacity = clusters.map(() => undefined);
+    warnings = ["No se pudo optimizar con IA, se usó agrupamiento simple."];
+  }
+
+  const zones: Zone[] = routedPoints.map((points, idx) => ({
     id: `${idPrefix}__${idx}`,
     zip,
     kind,
-    driverType: "repartidor",
+    driverType: types[idx] ?? "repartidor",
     driverNumber: 0,
     name: "",
-    points: orderStopsNearestNeighbor(points),
+    points,
+    estimatedMinutes: estimatedMinutes[idx],
+    overCapacity: overCapacity[idx],
   }));
   for (let idx = zones.length; idx < driverCount; idx++) {
     zones.push({
       id: `${idPrefix}__${idx}`,
       zip,
       kind,
-      driverType: "repartidor",
+      driverType: types[idx] ?? "repartidor",
       driverNumber: 0,
       name: "",
       points: [],
     });
   }
 
-  return { zones, totalPackages: rows.length, unlocated };
+  return { zones, totalPackages: rows.length, unlocated, warnings };
 }
 
-/** Clusters a single CP's home-delivery rows into exactly `types.length` zones (one per entry, in slot order). */
+/** Routes a single CP's home-delivery rows into exactly `types.length` zones (one per entry, in slot order). */
 export function buildZonesForZip(
   rows: EpodRow[],
   zip: string,
   types: DriverType[],
-): { group: ZipGroup; unlocated: EpodRow[] } {
-  const driverCount = types.length;
-  const { zones, totalPackages, unlocated } = clusterIntoZones(rows, driverCount, zip, zip, "home");
-  const typedZones: Zone[] = zones.map((zone, i) => ({ ...zone, driverType: types[i] ?? "repartidor" }));
+  vrpSettings: VrpSettings = DEFAULT_VRP_SETTINGS,
+): { group: ZipGroup; unlocated: EpodRow[]; warnings: string[] } {
+  const { zones, totalPackages, unlocated, warnings } = clusterIntoZones(rows, types, zip, zip, "home", vrpSettings);
 
   return {
-    group: { zip, totalPackages, zones: typedZones },
+    group: { zip, totalPackages, zones },
     unlocated,
+    warnings,
   };
 }
 
-/** Clusters PUDO rows pooled from every CP into exactly `driverCount` zones — a consolidated route, never mixed with per-CP home zones. */
+/** Routes PUDO rows pooled from every CP into exactly `driverCount` zones — a consolidated route, never mixed with per-CP home zones. Always "repartidor" (no per-slot type picker exists for PUDO). */
 export function buildPudoZones(
   rows: EpodRow[],
   driverCount: number,
-): { group: ZipGroup; unlocated: EpodRow[] } {
-  const { zones, totalPackages, unlocated } = clusterIntoZones(rows, driverCount, "pudo", PUDO_LABEL, "pudo");
+  vrpSettings: VrpSettings = DEFAULT_VRP_SETTINGS,
+): { group: ZipGroup; unlocated: EpodRow[]; warnings: string[] } {
+  const types: DriverType[] = Array.from({ length: driverCount }, () => "repartidor");
+  const { zones, totalPackages, unlocated, warnings } = clusterIntoZones(
+    rows,
+    types,
+    "pudo",
+    PUDO_LABEL,
+    "pudo",
+    vrpSettings,
+  );
   return {
     group: { zip: PUDO_LABEL, totalPackages, zones },
     unlocated,
+    warnings,
   };
 }
 
@@ -281,6 +307,7 @@ export function buildZonesByZip(
   rows: EpodRow[],
   driverTypesByZip: Record<string, DriverType[]>,
   pudoDriverCount = 0,
+  vrpSettings: VrpSettings = DEFAULT_VRP_SETTINGS,
 ): MultiZipClusterResult {
   const homeRows = rows.filter((r) => !isPudoDelivery(r.deliveryType));
   const pudoRows = rows.filter((r) => isPudoDelivery(r.deliveryType));
@@ -295,22 +322,34 @@ export function buildZonesByZip(
 
   const groups: ZipGroup[] = [];
   const unlocated: EpodRow[] = [];
+  const warnings: string[] = [];
 
   for (const [zip, zipRows] of rowsByZip) {
     const types = driverTypesByZip[zip] ?? [];
     if (types.length <= 0) continue;
-    const { group, unlocated: zipUnlocated } = buildZonesForZip(zipRows, zip, types);
+    const { group, unlocated: zipUnlocated, warnings: zipWarnings } = buildZonesForZip(
+      zipRows,
+      zip,
+      types,
+      vrpSettings,
+    );
     groups.push(group);
     unlocated.push(...zipUnlocated);
+    warnings.push(...zipWarnings.map((w) => `CP ${zip} — ${w}`));
   }
 
   groups.sort((a, b) => b.totalPackages - a.totalPackages);
 
   let pudoGroup: ZipGroup | null = null;
   if (pudoDriverCount > 0 && pudoRows.length > 0) {
-    const { group, unlocated: pudoUnlocated } = buildPudoZones(pudoRows, pudoDriverCount);
+    const { group, unlocated: pudoUnlocated, warnings: pudoWarnings } = buildPudoZones(
+      pudoRows,
+      pudoDriverCount,
+      vrpSettings,
+    );
     pudoGroup = group;
     unlocated.push(...pudoUnlocated);
+    warnings.push(...pudoWarnings.map((w) => `Ruta PUDO — ${w}`));
   }
 
   let globalDriverNumber = 1;
@@ -329,7 +368,7 @@ export function buildZonesByZip(
     }
   }
 
-  return { groups, pudoGroup, unlocated };
+  return { groups, pudoGroup, unlocated, warnings };
 }
 
 /**

@@ -8,6 +8,7 @@ import {
   Loader2,
   PackageSearch,
   History,
+  Timer,
 } from "lucide-react";
 import {
   parseEpodFile,
@@ -16,7 +17,7 @@ import {
   type EpodRow,
   type ColumnKey,
 } from "@/lib/epod";
-import { buildZonesByZip, type DriverType, type ZipGroup } from "@/lib/clustering";
+import { buildZonesByZip, DEFAULT_VRP_SETTINGS, type DriverType, type VrpSettings, type ZipGroup } from "@/lib/clustering";
 import { buildAssignments, saveAssignmentsRemote } from "@/lib/assignment";
 import { createBlock, type PackageMeta } from "@/lib/blocks";
 import { classifyClient } from "@/lib/client-category";
@@ -74,10 +75,17 @@ function SetupPage() {
   const [driverTypesByZip, setDriverTypesByZip] = useState<Record<string, DriverType[]>>({});
   const [pudoEnabled, setPudoEnabled] = useState(false);
   const [pudoDrivers, setPudoDrivers] = useState("");
+
+  const [minutesPerStop, setMinutesPerStop] = useState(String(DEFAULT_VRP_SETTINGS.minutesPerStop));
+  const [timeCapacityMin, setTimeCapacityMin] = useState(String(DEFAULT_VRP_SETTINGS.timeCapacityMin));
+  const [packageCapacity, setPackageCapacity] = useState(String(DEFAULT_VRP_SETTINGS.packageCapacity));
+
+  const [calculating, setCalculating] = useState(false);
   const [step, setStep] = useState<"setup" | "zones">("setup");
   const [zipGroups, setZipGroups] = useState<ZipGroup[]>([]);
   const [pudoGroup, setPudoGroup] = useState<ZipGroup | null>(null);
   const [unlocatedRows, setUnlocatedRows] = useState<EpodRow[]>([]);
+  const [routingWarnings, setRoutingWarnings] = useState<string[]>([]);
   const [confirmed, setConfirmed] = useState(false);
   const [creatingBlock, setCreatingBlock] = useState(false);
   const [remoteSaveStatus, setRemoteSaveStatus] = useState<"idle" | "saving" | "ok" | "error">("idle");
@@ -154,8 +162,11 @@ function SetupPage() {
     });
   }
 
-  function handleCalculate() {
+  async function handleCalculate() {
     if (!result) return;
+    setCalculating(true);
+    await new Promise(requestAnimationFrame); // let the spinner paint before the (synchronous) route calculation
+
     const driverTypeConfigs: Record<string, DriverType[]> = {};
     for (const [zip, value] of Object.entries(driversByZip)) {
       const n = Number(value);
@@ -163,15 +174,26 @@ function SetupPage() {
       const types = driverTypesByZip[zip] ?? [];
       driverTypeConfigs[zip] = Array.from({ length: n }, (_, i) => types[i] ?? "repartidor");
     }
-    const { groups, pudoGroup: computedPudoGroup, unlocated } = buildZonesByZip(
+
+    const vrpSettings: VrpSettings = {
+      ...DEFAULT_VRP_SETTINGS,
+      minutesPerStop: Number(minutesPerStop) || DEFAULT_VRP_SETTINGS.minutesPerStop,
+      timeCapacityMin: Number(timeCapacityMin) || DEFAULT_VRP_SETTINGS.timeCapacityMin,
+      packageCapacity: Number(packageCapacity) || DEFAULT_VRP_SETTINGS.packageCapacity,
+    };
+
+    const { groups, pudoGroup: computedPudoGroup, unlocated, warnings } = buildZonesByZip(
       result.inDeliveryRows,
       driverTypeConfigs,
       nPudoDrivers,
+      vrpSettings,
     );
     setZipGroups(groups);
     setPudoGroup(computedPudoGroup);
     setUnlocatedRows(unlocated);
+    setRoutingWarnings(warnings);
     setConfirmed(false);
+    setCalculating(false);
     setStep("zones");
   }
 
@@ -192,6 +214,7 @@ function SetupPage() {
         groups={zipGroups}
         pudoGroup={pudoGroup}
         unlocated={unlocatedRows}
+        warnings={routingWarnings}
         onGroupsChange={setZipGroups}
         onPudoGroupChange={setPudoGroup}
         onBack={() => setStep("setup")}
@@ -499,13 +522,66 @@ function SetupPage() {
         </section>
       )}
 
+      <section className="mb-6 space-y-3">
+        <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
+          <Timer className="h-5 w-5 text-accent" />
+          4. Parámetros de ruta
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          El motor de rutas usa esto para ordenar las paradas de cada conductor respetando su
+          capacidad — no hace falta tocarlo, ya trae valores por defecto razonables.
+        </p>
+        <div className="grid grid-cols-3 gap-2">
+          <label className="block">
+            <span className="text-xs font-semibold text-muted-foreground">Min. por parada</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={minutesPerStop}
+              onChange={(e) => setMinutesPerStop(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2.5 text-center text-lg font-bold text-foreground outline-none focus:border-accent"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-muted-foreground">Cap. tiempo (min)</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={timeCapacityMin}
+              onChange={(e) => setTimeCapacityMin(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2.5 text-center text-lg font-bold text-foreground outline-none focus:border-accent"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs font-semibold text-muted-foreground">Cap. paquetes</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={packageCapacity}
+              onChange={(e) => setPackageCapacity(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-border bg-card px-3 py-2.5 text-center text-lg font-bold text-foreground outline-none focus:border-accent"
+            />
+          </label>
+        </div>
+      </section>
+
       <button
         type="button"
-        onClick={handleCalculate}
-        disabled={!canCalculate}
-        className="w-full rounded-2xl bg-primary px-6 py-5 text-xl font-black uppercase tracking-wide text-primary-foreground transition-opacity disabled:opacity-40"
+        onClick={() => void handleCalculate()}
+        disabled={!canCalculate || calculating}
+        className="flex w-full items-center justify-center gap-2 rounded-2xl bg-primary px-6 py-5 text-xl font-black uppercase tracking-wide text-primary-foreground transition-opacity disabled:opacity-40"
       >
-        Calcular zonas
+        {calculating ? (
+          <>
+            <Loader2 className="h-6 w-6 animate-spin" />
+            Calculando ruta óptima…
+          </>
+        ) : (
+          "Calcular zonas"
+        )}
       </button>
       {!canCalculate && (
         <p className="mt-2 text-center text-sm text-muted-foreground">

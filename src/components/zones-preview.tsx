@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import {
+  AlertTriangle,
   ArrowLeft,
   CheckCircle2,
   ChevronDown,
@@ -26,6 +27,7 @@ export function ZonesPreview({
   groups,
   pudoGroup,
   unlocated,
+  warnings = [],
   onGroupsChange,
   onPudoGroupChange,
   onBack,
@@ -37,6 +39,8 @@ export function ZonesPreview({
   groups: ZipGroup[];
   pudoGroup: ZipGroup | null;
   unlocated: EpodRow[];
+  /** Capacity shortfalls, Andarín stops too far apart, or a K-means-fallback note from the route calculation. */
+  warnings?: string[];
   onGroupsChange: (groups: ZipGroup[]) => void;
   onPudoGroupChange: (group: ZipGroup) => void;
   onBack: () => void;
@@ -80,6 +84,20 @@ export function ZonesPreview({
           Vista previa de zonas. Ajusta los nombres antes de confirmar.
         </p>
       </header>
+
+      {warnings.length > 0 && (
+        <div className="mb-6 rounded-xl border border-warning/40 bg-warning/10 p-3">
+          <p className="mb-1.5 flex items-center gap-1.5 text-sm font-bold text-warning-foreground">
+            <AlertTriangle className="h-4 w-4 shrink-0" />
+            {warnings.length} aviso{warnings.length > 1 ? "s" : ""} del cálculo de rutas
+          </p>
+          <ul className="space-y-1 text-sm text-warning-foreground/90">
+            {warnings.map((w, i) => (
+              <li key={i}>{w}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
         <section>
@@ -296,8 +314,19 @@ function ZoneGroupCard({
                   onChange={(e) => onRename(zone.id, e.target.value)}
                   className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-base font-bold text-foreground outline-none focus:border-accent"
                 />
+                {zone.overCapacity && (
+                  <AlertTriangle
+                    className="h-4 w-4 shrink-0 text-destructive"
+                    aria-label="Sobre su capacidad de tiempo o paquetes"
+                  />
+                )}
                 <span className="shrink-0 rounded-lg bg-accent/15 px-2.5 py-1 text-sm font-black text-foreground">
                   {zone.points.length}
+                  {zone.estimatedMinutes !== undefined && (
+                    <span className="ml-1 font-semibold text-muted-foreground">
+                      · ~{zone.estimatedMinutes}min
+                    </span>
+                  )}
                 </span>
                 <button
                   type="button"
