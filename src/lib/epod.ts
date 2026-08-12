@@ -11,7 +11,8 @@ export type ColumnKey =
   | "deliveryType"
   | "exceptionDetail"
   | "marketPlaceName"
-  | "sellerName";
+  | "sellerName"
+  | "driverName";
 
 /** Bilingual (ES/EN) header aliases for the Cainiao ePOD export. */
 export const COLUMN_ALIASES: Record<ColumnKey, string[]> = {
@@ -50,6 +51,7 @@ export const COLUMN_ALIASES: Record<ColumnKey, string[]> = {
   exceptionDetail: ["detalles de la excepcion", "detalle de la excepcion", "exception detail", "detalles excepcion"],
   marketPlaceName: ["nombre del mercado", "market place name", "marketplace name", "nombre mercado"],
   sellerName: ["nombre del vendedor", "seller name", "nombre vendedor"],
+  driverName: ["conductor", "repartidor", "nombre del conductor", "driver name", "driver"],
 };
 
 export const REQUIRED_COLUMNS: ColumnKey[] = ["waybill", "taskStatus", "taskDate"];
@@ -100,6 +102,8 @@ export type EpodRow = {
   exceptionDetail: string;
   marketPlaceName: string;
   sellerName: string;
+  /** Whoever the ePOD credits with the delivery — empty if the column wasn't found. */
+  driverName: string;
 };
 
 export type EpodParseResult = {
@@ -157,6 +161,19 @@ export function classifyTaskStatus(taskStatus: string): TrackingStatus {
   return "pending";
 }
 
+/** Coarser than `TrackingStatus` — used by /visual, which has no zone/driver context to fall back on, so "received" and truly-other statuses (e.g. "Assigned") are told apart instead of both landing in "pending". */
+export type VisualStatus = "delivered" | "failed" | "received" | "other";
+
+const RECEIVED_STATUSES = ["driver received", "driver received incidencias"];
+
+export function classifyVisualStatus(taskStatus: string): VisualStatus {
+  const norm = normalizeHeader(taskStatus);
+  if (DELIVERED_STATUSES.includes(norm)) return "delivered";
+  if (FAILED_STATUSES.includes(norm)) return "failed";
+  if (RECEIVED_STATUSES.includes(norm)) return "received";
+  return "other";
+}
+
 function toNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const n = typeof value === "number" ? value : Number(String(value).replace(",", "."));
@@ -206,6 +223,7 @@ export async function parseEpodFile(file: File): Promise<EpodParseResult> {
     exceptionDetail: String(columns.exceptionDetail ? (r[columns.exceptionDetail] ?? "") : "").trim(),
     marketPlaceName: String(columns.marketPlaceName ? (r[columns.marketPlaceName] ?? "") : "").trim(),
     sellerName: String(columns.sellerName ? (r[columns.sellerName] ?? "") : "").trim(),
+    driverName: String(columns.driverName ? (r[columns.driverName] ?? "") : "").trim(),
   })).filter((r) => r.waybill);
 
   const dates = rows.map((r) => r.taskDate).filter(Boolean).sort();

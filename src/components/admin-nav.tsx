@@ -1,5 +1,5 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { Activity, AlertTriangle, LayoutDashboard, PlusCircle, ScanLine, UserRound } from "lucide-react";
+import { Activity, AlertTriangle, Eye, LayoutDashboard, PlusCircle, ScanLine, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -8,6 +8,7 @@ const NAV_ITEMS = [
   { to: "/escanear" as const, label: "Escanear", icon: ScanLine },
   { to: "/conductor" as const, label: "Conductor", icon: UserRound },
   { to: "/seguimiento" as const, label: "Seguimiento", icon: Activity },
+  { to: "/visual" as const, label: "Visual", icon: Eye },
   { to: "/priorizar" as const, label: "Priorizar", icon: AlertTriangle },
 ];
 
