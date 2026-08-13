@@ -19,22 +19,11 @@ export type TrackedPackage = {
   isPudo: boolean;
 };
 
-export type DriverBreakdown = {
-  driverNumber: number;
-  zoneName: string;
-  driverType: DriverType;
-  delivered: number;
-  failed: number;
-  pending: number;
-  total: number;
-};
-
 export type TrackingSnapshot = {
   generatedAt: string;
   tracked: TrackedPackage[];
   /** Rows from the uploaded file whose waybill isn't in the saved route mapping — shown separately, never mixed into the map/counters. */
   unassigned: EpodRow[];
-  driverBreakdown: DriverBreakdown[];
   counts: { delivered: number; failed: number; pending: number; total: number };
 };
 
@@ -75,22 +64,5 @@ export function buildTrackingSnapshot(rows: EpodRow[], assignments: SavedAssignm
   const counts = { delivered: 0, failed: 0, pending: 0, total: tracked.length };
   for (const p of tracked) counts[p.status] += 1;
 
-  const byDriver = new Map<number, DriverBreakdown>();
-  for (const p of tracked) {
-    const entry = byDriver.get(p.driverNumber) ?? {
-      driverNumber: p.driverNumber,
-      zoneName: p.zoneName,
-      driverType: p.driverType,
-      delivered: 0,
-      failed: 0,
-      pending: 0,
-      total: 0,
-    };
-    entry[p.status] += 1;
-    entry.total += 1;
-    byDriver.set(p.driverNumber, entry);
-  }
-  const driverBreakdown = [...byDriver.values()].sort((a, b) => a.driverNumber - b.driverNumber);
-
-  return { generatedAt: new Date().toISOString(), tracked, unassigned, driverBreakdown, counts };
+  return { generatedAt: new Date().toISOString(), tracked, unassigned, counts };
 }

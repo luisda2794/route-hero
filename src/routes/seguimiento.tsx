@@ -1,15 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Footprints,
-  PackageX,
-  Truck,
-  Upload,
-  XCircle,
-} from "lucide-react";
+import { AlertTriangle, CheckCircle2, Clock, PackageX, Upload, XCircle } from "lucide-react";
 import { parseEpodFile } from "@/lib/epod";
 import {
   assignmentsForBlock,
@@ -17,7 +8,6 @@ import {
   syncBlocksFromRemote,
   type RoutingBlock,
 } from "@/lib/blocks";
-import { colorForDriverNumber } from "@/lib/clustering";
 import { buildTrackingSnapshot, type TrackingSnapshot } from "@/lib/tracking";
 import { AdminNav } from "@/components/admin-nav";
 import { usePollRemoteSync } from "@/hooks/use-poll-remote-sync";
@@ -87,7 +77,7 @@ function SeguimientoPage() {
   }
 
   return (
-    <main className="mx-auto min-h-screen w-full max-w-lg px-4 pb-16 pt-8 lg:max-w-5xl">
+    <main className="mx-auto min-h-screen w-full max-w-lg px-4 pb-16 pt-8 lg:max-w-6xl">
       <AdminNav />
 
       <header className="mb-6">
@@ -189,90 +179,33 @@ function SeguimientoPage() {
                 />
               </section>
 
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-                <section>
-                  <h2 className="mb-3 text-lg font-bold text-foreground">Mapa de entregas</h2>
-                  {mounted ? (
-                    <Suspense
-                      fallback={<div className="h-[70vh] w-full animate-pulse rounded-xl bg-secondary" />}
-                    >
-                      <TrackingMap
-                        packages={snapshot.tracked}
-                        className="h-[70vh] w-full rounded-xl border border-border lg:h-[calc(100vh-14rem)]"
-                      />
-                    </Suspense>
-                  ) : (
-                    <div className="h-[70vh] w-full animate-pulse rounded-xl bg-secondary" />
-                  )}
-                </section>
+              {mounted ? (
+                <Suspense fallback={<div className="h-[75vh] w-full animate-pulse rounded-xl bg-secondary" />}>
+                  <TrackingMap
+                    packages={snapshot.tracked}
+                    className="h-[75vh] w-full rounded-xl border border-border lg:h-[calc(100vh-14rem)]"
+                  />
+                </Suspense>
+              ) : (
+                <div className="h-[75vh] w-full animate-pulse rounded-xl bg-secondary" />
+              )}
 
-                <section className="space-y-4">
-                  <div>
-                    <h2 className="mb-3 text-lg font-bold text-foreground">Por conductor</h2>
-                    <div className="space-y-3">
-                      {snapshot.driverBreakdown.map((d) => (
-                        <div key={d.driverNumber} className="rounded-xl border border-border bg-card p-3">
-                          <div className="mb-1.5 flex items-center gap-2">
-                            <span
-                              className="h-3 w-3 shrink-0 rounded-full"
-                              style={{ backgroundColor: colorForDriverNumber(d.driverNumber) }}
-                              aria-hidden
-                            />
-                            {d.driverType === "andarin" ? (
-                              <Footprints className="h-4 w-4 shrink-0 text-muted-foreground" />
-                            ) : (
-                              <Truck className="h-4 w-4 shrink-0 text-muted-foreground" />
-                            )}
-                            <span className="min-w-0 flex-1 truncate text-sm font-bold text-foreground">
-                              Conductor {d.driverNumber} — {d.zoneName}
-                            </span>
-                            <span className="shrink-0 text-xs font-semibold text-muted-foreground">
-                              {d.delivered + d.failed}/{d.total}
-                            </span>
-                          </div>
-                          <div className="flex h-2 overflow-hidden rounded-full bg-secondary">
-                            {d.delivered > 0 && (
-                              <div
-                                className="h-full bg-success"
-                                style={{ width: `${(d.delivered / d.total) * 100}%` }}
-                              />
-                            )}
-                            {d.failed > 0 && (
-                              <div
-                                className="h-full bg-destructive"
-                                style={{ width: `${(d.failed / d.total) * 100}%` }}
-                              />
-                            )}
-                            {d.pending > 0 && (
-                              <div
-                                className="h-full bg-pending"
-                                style={{ width: `${(d.pending / d.total) * 100}%` }}
-                              />
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {snapshot.unassigned.length > 0 && (
-                    <div>
-                      <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-foreground">
-                        <PackageX className="h-5 w-5 text-destructive" />
-                        Sin ruta asignada ({snapshot.unassigned.length})
-                      </h2>
-                      <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-border bg-card p-3">
-                        {snapshot.unassigned.map((row) => (
-                          <div key={row.waybill} className="flex justify-between gap-2 text-sm">
-                            <span className="truncate font-semibold text-foreground">{row.waybill}</span>
-                            <span className="truncate text-muted-foreground">{row.taskStatus || "—"}</span>
-                          </div>
-                        ))}
+              {snapshot.unassigned.length > 0 && (
+                <div className="mt-4">
+                  <h2 className="mb-3 flex items-center gap-2 text-lg font-bold text-foreground">
+                    <PackageX className="h-5 w-5 text-destructive" />
+                    Sin ruta asignada ({snapshot.unassigned.length})
+                  </h2>
+                  <div className="max-h-48 space-y-1 overflow-y-auto rounded-xl border border-border bg-card p-3">
+                    {snapshot.unassigned.map((row) => (
+                      <div key={row.waybill} className="flex justify-between gap-2 text-sm">
+                        <span className="truncate font-semibold text-foreground">{row.waybill}</span>
+                        <span className="truncate text-muted-foreground">{row.taskStatus || "—"}</span>
                       </div>
-                    </div>
-                  )}
-                </section>
-              </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </>
           )}
         </>
