@@ -1,10 +1,9 @@
-import { useEffect } from "react";
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
-import L from "leaflet";
+import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import type { LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { TrackedPackage } from "@/lib/tracking";
 import type { TrackingStatus } from "@/lib/epod";
+import { FitBounds } from "./leaflet-fit-bounds";
 
 const MADRID_CENTER: LatLngExpression = [40.4168, -3.7038];
 
@@ -21,15 +20,6 @@ const STATUS_LABELS: Record<TrackingStatus, string> = {
   failed: "Fallado",
   pending: "Pendiente",
 };
-
-function FitBounds({ points }: { points: LatLngExpression[] }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!points.length) return;
-    map.fitBounds(L.latLngBounds(points), { padding: [24, 24] });
-  }, [map, points]);
-  return null;
-}
 
 /** Client-only Leaflet map — must be lazy-loaded, never imported during SSR. */
 export default function TrackingMap({

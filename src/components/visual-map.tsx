@@ -1,8 +1,8 @@
-import { useEffect } from "react";
-import { MapContainer, TileLayer, CircleMarker, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
 import type { LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { VisualStatus } from "@/lib/epod";
+import { FitBounds } from "./leaflet-fit-bounds";
 
 export type VisualPoint = {
   waybill: string;
@@ -31,15 +31,6 @@ const STATUS_LABELS: Record<VisualStatus, string> = {
   received: "Recibido por el driver",
   other: "Otro estado",
 };
-
-function FitBounds({ points }: { points: LatLngExpression[] }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!points.length) return;
-    map.fitBounds(points, { padding: [24, 24] });
-  }, [map, points]);
-  return null;
-}
 
 /** Client-only Leaflet map — must be lazy-loaded, never imported during SSR. */
 export default function VisualMap({

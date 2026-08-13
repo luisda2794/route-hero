@@ -1,9 +1,9 @@
-import { useEffect } from "react";
-import { MapContainer, TileLayer, Marker, Polyline, Popup, useMap } from "react-leaflet";
+import { MapContainer, TileLayer, Marker, Polyline, Popup } from "react-leaflet";
 import L, { type LatLngExpression } from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { Zone } from "@/lib/clustering";
 import type { StopStatus } from "@/lib/driver";
+import { FitBounds } from "./leaflet-fit-bounds";
 
 const MADRID_CENTER: LatLngExpression = [40.4168, -3.7038];
 
@@ -28,15 +28,6 @@ function numberedIcon(stopNumber: number, status: StopStatus, highlighted: boole
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
-}
-
-function FitBounds({ points }: { points: LatLngExpression[] }) {
-  const map = useMap();
-  useEffect(() => {
-    if (!points.length) return;
-    map.fitBounds(L.latLngBounds(points), { padding: [24, 24] });
-  }, [map, points]);
-  return null;
 }
 
 /**
